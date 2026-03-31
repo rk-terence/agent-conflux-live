@@ -2,6 +2,7 @@
 
 - Architecture and system design: docs/ARCHITECTURE.md
 - Provider integration notes and model behavior: docs/PROVIDER.md
+- Roadmap and next steps: docs/ROADMAP.md
 
 # Project Structure
 
