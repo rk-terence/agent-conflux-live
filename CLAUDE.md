@@ -1,7 +1,7 @@
 # Docs
 
-- PRD document: docs/PRD.md
-- Architecture of implementation: docs/ARCHITECTURE.md
+- Architecture and system design: docs/ARCHITECTURE.md
+- Provider integration notes and model behavior: docs/PROVIDER.md
 
 # Project Structure
 
@@ -12,7 +12,7 @@
 # Development
 
 ```bash
-pnpm test                    # run core tests (82 tests)
+pnpm test                    # run core tests (100 tests)
 cd ui && pnpm dev            # start UI dev server (localhost:5173)
 ```
 

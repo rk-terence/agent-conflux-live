@@ -2,6 +2,7 @@ import type { SessionState, DomainEvent, AgentIterationResult, IterationResult }
 import { reduceIteration } from "../domain/reducer.js";
 import { projectHistory } from "../history/projector.js";
 import { buildReactionInput, buildContinuationInput } from "../prompting/builder.js";
+import type { CollisionContext } from "../prompting/builder.js";
 import type { ModelGateway, ModelCallInput, ModelCallOutput } from "../model-gateway/types.js";
 import { normalizeOutput } from "../normalization/normalize.js";
 import type { NormalizedResult } from "../normalization/normalize.js";
@@ -192,6 +193,8 @@ function buildListenerCall(
     participants: state.participants,
   });
 
+  const collisionContext = buildCollisionContext(state, agentId);
+
   return buildReactionInput({
     sessionId: state.sessionId,
     iterationId,
@@ -200,6 +203,42 @@ function buildListenerCall(
     allNames,
     topic: state.topic,
     historyText,
+    collisionContext,
     abortSignal,
   });
+}
+
+function buildCollisionContext(
+  state: SessionState,
+  agentId: string,
+): CollisionContext | undefined {
+  const events = state.events;
+
+  // Count consecutive collisions from the end of the event list
+  let streak = 0;
+  const colliderCounts = new Map<string, number>();
+
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.kind !== "collision") break;
+    streak++;
+    for (const u of e.utterances) {
+      colliderCounts.set(u.agentId, (colliderCounts.get(u.agentId) ?? 0) + 1);
+    }
+  }
+
+  if (streak === 0) return undefined;
+
+  const nameMap = new Map(state.participants.map(p => [p.agentId, p.name]));
+
+  // "Frequent colliders" = those who spoke in every collision of the streak
+  const frequentColliders = [...colliderCounts.entries()]
+    .filter(([id, count]) => id !== agentId && count >= streak)
+    .map(([id]) => nameMap.get(id) ?? id);
+
+  const otherNames = [...colliderCounts.keys()]
+    .filter(id => id !== agentId)
+    .map(id => nameMap.get(id) ?? id);
+
+  return { streak, otherNames, frequentColliders };
 }

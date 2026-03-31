@@ -2,12 +2,10 @@
 
 ## Purpose
 
-This document defines the implementation architecture for AI Roundtable.
+This document defines the implementation architecture for AI Roundtable. It is the source of truth for system design and module boundaries.
 
-- `docs/PRD.md` defines product behavior and user-facing rules.
-- `docs/ARCHITECTURE.md` defines how the system must be structured in code.
-
-If product behavior and implementation details conflict, product behavior in `docs/PRD.md` takes precedence. This document must then be updated to match.
+Related docs:
+- `docs/PROVIDER.md` — provider integration notes, API gotchas, model behavior observations
 
 ## Scope
 
@@ -162,10 +160,11 @@ Must not:
 - render history
 - know how to update discussion state
 
-Two dummy implementations exist:
+Four implementations exist:
 
 - `DummyGateway`: fully controllable via a response function, used in unit tests.
 - `SmartDummyGateway`: simulates realistic discussion behavior (random speech/silence, multi-sentence turns), used for end-to-end UI testing without real API keys.
+- `ZenMuxGateway`: real provider adapter using ZenMux aggregation platform (OpenAI-compatible protocol). Supports all major models (DeepSeek, Gemini, Qwen, GPT, Mistral) through a single API key. Does not use API-level stop sequences; instead performs client-side sentence extraction (`extractFirstSentence`) to guarantee complete sentences with punctuation. Disables model reasoning/thinking to reduce latency and cost. See `CLAUDE.md` for detailed API notes and known issues.
 
 ### 6. Normalization
 
@@ -450,18 +449,16 @@ When real providers are added later, they should be tested against the `ModelGat
 
 The following are not yet implemented:
 
-- concrete provider adapters (Anthropic, OpenAI, Google, DeepSeek, Qwen, Groq)
-- API key storage and management (UI has input fields but they are not wired)
-- virtual duration limit enforcement (setup slider exists but is not connected to engine)
 - persistence or session replay storage format
 - analytics pipeline (post-discussion statistics)
 - export pipeline (shareable images/video)
+- CLI test harness for prompt debugging (terminal-based timeline logging)
 
 These can be added later, but they must not violate the module boundaries defined above.
 
 ## Implementation Status
 
-The core engine is fully implemented and tested (82 tests). The UI wireframe is functional with a `SmartDummyGateway` that simulates realistic discussion behavior.
+The core engine is fully implemented and tested (100 tests). The UI supports both demo mode (`SmartDummyGateway`) and real API mode (`ZenMuxGateway`). The ZenMux provider integration is functional but prompt tuning and turn-taking behavior require further iteration.
 
 ### Project Structure
 
@@ -471,7 +468,7 @@ src/                          # Framework-agnostic core (pnpm root)
   engine/                     # Single-iteration orchestrator
   history/                    # Perspective-specific transcript projection
   prompting/                  # System prompt, call input builders
-  model-gateway/              # Gateway interface, dummy implementations
+  model-gateway/              # Gateway interface, dummy + ZenMux implementations
   normalization/              # Raw output → AgentOutput classification
   runner/                     # Discussion loop driver
 
@@ -493,7 +490,7 @@ docs/
 
 ```bash
 # Core tests
-pnpm test              # run all 82 tests
+pnpm test              # run all 100 tests
 pnpm test:watch        # watch mode
 
 # UI development

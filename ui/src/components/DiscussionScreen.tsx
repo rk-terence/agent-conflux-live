@@ -23,10 +23,12 @@ export type ParticipantDisplay = {
 const AGENT_COLORS: Record<string, string> = {
   claude: 'bg-orange-500',
   gpt4o: 'bg-green-500',
+  gpt: 'bg-green-500',
   gemini: 'bg-blue-500',
   deepseek: 'bg-purple-500',
   qwen: 'bg-cyan-500',
   llama: 'bg-red-500',
+  mistral: 'bg-red-500',
 }
 
 export const COLOR_HEX: Record<string, string> = {

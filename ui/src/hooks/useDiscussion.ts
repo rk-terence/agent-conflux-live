@@ -1,9 +1,9 @@
 import { useState, useCallback, useRef } from 'react'
 import type { SessionState, DomainEvent, Participant } from '@core/domain/types.ts'
+import type { ModelGateway } from '@core/model-gateway/types.ts'
 import type { IterationDebugInfo } from '@core/engine/engine.ts'
 import type { DiscussionControls } from '@core/runner/runner.ts'
 import { startDiscussion } from '@core/runner/runner.ts'
-import { SmartDummyGateway } from '@core/model-gateway/smart-dummy.ts'
 
 export type DiscussionStatus = 'idle' | 'running' | 'paused' | 'ended'
 
@@ -11,6 +11,7 @@ export type StartConfig = {
   topic: string
   participants: Participant[]
   durationSeconds: number
+  gateway: ModelGateway
 }
 
 export type UseDiscussionReturn = {
@@ -38,14 +39,12 @@ export function useDiscussion(): UseDiscussionReturn {
     setLatestDebug(null)
     setStatus('running')
 
-    const gateway = new SmartDummyGateway(0.3)
-
     const controls = startDiscussion(
       {
         sessionId: `session-${Date.now()}`,
         topic: config.topic,
         participants: config.participants,
-        gateway,
+        gateway: config.gateway,
         iterationDelayMs: 400,
         maxVirtualDurationSeconds: config.durationSeconds,
       },

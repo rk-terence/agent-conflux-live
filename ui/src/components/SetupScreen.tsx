@@ -1,14 +1,25 @@
 import { useState } from 'react'
 import type { SetupConfig } from '../App'
+import { SmartDummyGateway } from '@core/model-gateway/smart-dummy.ts'
+import { ZenMuxGateway, PRESET_BUDGET, PRESET_PREMIUM, presetToAgentModels } from '@core/model-gateway/zenmux.ts'
+import type { PresetAgent } from '@core/model-gateway/zenmux.ts'
 
-const MODELS = [
-  { id: 'claude', name: 'Claude Sonnet 4', provider: 'Anthropic', color: 'bg-orange-500' },
-  { id: 'gpt4o', name: 'GPT-4o', provider: 'OpenAI', color: 'bg-green-500' },
-  { id: 'gemini', name: 'Gemini 2.5 Flash', provider: 'Google', color: 'bg-blue-500' },
-  { id: 'deepseek', name: 'DeepSeek Chat', provider: 'DeepSeek', color: 'bg-purple-500' },
-  { id: 'qwen', name: 'Qwen Plus', provider: 'Qwen', color: 'bg-cyan-500' },
-  { id: 'llama', name: 'Llama 3.3 70B', provider: 'Groq', color: 'bg-red-500' },
-] as const
+type GatewayMode = 'demo' | 'zenmux'
+type PresetKey = 'budget' | 'premium'
+
+const PRESETS: Record<PresetKey, { label: string; description: string; agents: readonly PresetAgent[] }> = {
+  budget:  { label: 'Budget',  description: 'PAYG 友好 — DeepSeek, Gemini Free, Qwen, GPT-5n, Mistral', agents: PRESET_BUDGET },
+  premium: { label: 'Premium', description: '订阅推荐 — DeepSeek v3.2, Gemini Flash, Qwen3 Max 等',      agents: PRESET_PREMIUM },
+}
+
+const DEMO_AGENTS: readonly PresetAgent[] = [
+  { agentId: 'claude',   name: 'Claude',   provider: 'Anthropic', model: 'demo' },
+  { agentId: 'gpt4o',    name: 'GPT-4o',   provider: 'OpenAI',    model: 'demo' },
+  { agentId: 'gemini',   name: 'Gemini',   provider: 'Google',    model: 'demo' },
+  { agentId: 'deepseek', name: 'DeepSeek', provider: 'DeepSeek',  model: 'demo' },
+  { agentId: 'qwen',     name: 'Qwen',     provider: 'Alibaba',   model: 'demo' },
+  { agentId: 'llama',    name: 'Llama',    provider: 'Meta',      model: 'demo' },
+]
 
 const PRESET_TOPICS = [
   'AI 有没有意识？',
@@ -23,11 +34,29 @@ type Props = {
 }
 
 export function SetupScreen({ onStart }: Props) {
-  const [selected, setSelected] = useState<Set<string>>(new Set(['claude', 'gpt4o', 'gemini']))
+  const [mode, setMode] = useState<GatewayMode>('demo')
+  const [apiKey, setApiKey] = useState('')
+  const [presetKey, setPresetKey] = useState<PresetKey>('budget')
+
+  const agents = mode === 'demo' ? DEMO_AGENTS : PRESETS[presetKey].agents
+  const [selected, setSelected] = useState<Set<string>>(new Set(agents.slice(0, 3).map(a => a.agentId)))
+
   const [topic, setTopic] = useState(PRESET_TOPICS[0])
   const [customTopic, setCustomTopic] = useState('')
   const [useCustom, setUseCustom] = useState(false)
   const [duration, setDuration] = useState(180)
+
+  const switchMode = (m: GatewayMode) => {
+    setMode(m)
+    const nextAgents = m === 'demo' ? DEMO_AGENTS : PRESETS[presetKey].agents
+    setSelected(new Set(nextAgents.slice(0, 3).map(a => a.agentId)))
+  }
+
+  const switchPreset = (pk: PresetKey) => {
+    setPresetKey(pk)
+    const nextAgents = PRESETS[pk].agents
+    setSelected(new Set(nextAgents.slice(0, 3).map(a => a.agentId)))
+  }
 
   const toggle = (id: string) => {
     setSelected(prev => {
@@ -38,7 +67,27 @@ export function SetupScreen({ onStart }: Props) {
     })
   }
 
-  const canStart = selected.size >= 2 && (useCustom ? customTopic.trim() : topic)
+  const finalTopic = useCustom ? customTopic.trim() : topic
+  const canStart = selected.size >= 2 && finalTopic && (mode === 'demo' || apiKey.trim())
+
+  const handleStart = () => {
+    const selectedAgents = agents.filter(a => selected.has(a.agentId))
+
+    const gateway = mode === 'demo'
+      ? new SmartDummyGateway(0.3)
+      : new ZenMuxGateway({
+          apiKey: apiKey.trim(),
+          agentModels: presetToAgentModels(selectedAgents),
+          defaultModel: PRESETS[presetKey].agents[0].model,
+        })
+
+    onStart({
+      topic: finalTopic,
+      participants: selectedAgents.map(a => ({ agentId: a.agentId, name: a.name })),
+      durationSeconds: duration,
+      gateway,
+    })
+  }
 
   return (
     <div className="max-w-2xl mx-auto px-6 py-12">
@@ -48,45 +97,93 @@ export function SetupScreen({ onStart }: Props) {
         <p className="text-gray-400">去中心化多模型自由讨论</p>
       </div>
 
-      {/* Model selector */}
-      <section className="mb-10">
-        <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">
-          选择参与模型
-          <span className="ml-2 text-gray-500">（至少 2 个）</span>
-        </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {MODELS.map(m => (
-            <button
-              key={m.id}
-              onClick={() => toggle(m.id)}
-              className={`relative rounded-xl border-2 p-4 text-left transition-all ${
-                selected.has(m.id)
-                  ? 'border-gray-400 bg-gray-800/80'
-                  : 'border-gray-700/50 bg-gray-900/50 opacity-50 hover:opacity-75'
-              }`}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <span className={`w-2.5 h-2.5 rounded-full ${m.color}`} />
-                <span className="font-medium text-sm">{m.name}</span>
-              </div>
-              <span className="text-xs text-gray-500">{m.provider}</span>
-              {selected.has(m.id) && (
-                <span className="absolute top-2 right-2 text-gray-400 text-xs">&#10003;</span>
-              )}
-            </button>
-          ))}
+      {/* Gateway mode toggle */}
+      <section className="mb-8">
+        <div className="flex rounded-lg border border-gray-700 overflow-hidden">
+          <button
+            onClick={() => switchMode('demo')}
+            className={`flex-1 py-2 text-sm font-medium transition-colors ${
+              mode === 'demo' ? 'bg-gray-700 text-gray-100' : 'text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            Demo 模式
+          </button>
+          <button
+            onClick={() => switchMode('zenmux')}
+            className={`flex-1 py-2 text-sm font-medium transition-colors ${
+              mode === 'zenmux' ? 'bg-gray-700 text-gray-100' : 'text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            ZenMux
+          </button>
         </div>
       </section>
 
-      {/* Demo mode notice */}
-      <section className="mb-10">
-        <div className="rounded-xl border border-yellow-900/50 bg-yellow-950/20 px-4 py-3">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-yellow-500 text-sm font-medium">Demo 模式</span>
+      {/* ZenMux config */}
+      {mode === 'zenmux' && (
+        <section className="mb-8 space-y-4">
+          {/* API Key */}
+          <div>
+            <label className="block text-sm text-gray-400 mb-1.5">API Key</label>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={e => setApiKey(e.target.value)}
+              placeholder="zm-..."
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300 placeholder-gray-600 focus:outline-none focus:border-gray-500 font-mono"
+            />
           </div>
-          <p className="text-xs text-gray-400">
-            当前使用模拟数据运行，无需 API Key。接入真实 Provider 后将在此处配置密钥。
-          </p>
+
+          {/* Preset selector */}
+          <div>
+            <label className="block text-sm text-gray-400 mb-1.5">模型预设</label>
+            <div className="flex gap-2">
+              {(Object.keys(PRESETS) as PresetKey[]).map(pk => (
+                <button
+                  key={pk}
+                  onClick={() => switchPreset(pk)}
+                  className={`px-3 py-1.5 rounded-lg text-sm border transition-all ${
+                    presetKey === pk
+                      ? 'border-gray-400 bg-gray-800 text-gray-200'
+                      : 'border-gray-700 text-gray-500 hover:text-gray-300'
+                  }`}
+                >
+                  {PRESETS[pk].label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500 mt-1.5">{PRESETS[presetKey].description}</p>
+          </div>
+        </section>
+      )}
+
+      {/* Participant list */}
+      <section className="mb-10">
+        <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
+          参与模型
+          <span className="ml-2 text-gray-500">（至少 2 个）</span>
+        </h2>
+        <div className="space-y-1">
+          {agents.map(a => (
+            <label
+              key={a.agentId}
+              className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+                selected.has(a.agentId) ? 'bg-gray-800/80' : 'opacity-50 hover:opacity-75'
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={selected.has(a.agentId)}
+                onChange={() => toggle(a.agentId)}
+                className="accent-gray-400"
+              />
+              <span className="text-sm font-medium flex-1">{a.name}</span>
+              <span className="text-xs text-gray-500">{a.provider}</span>
+              {mode === 'zenmux' && (
+                <span className="text-xs text-gray-600 font-mono">{a.model}</span>
+              )}
+            </label>
+          ))}
         </div>
       </section>
 
@@ -95,8 +192,6 @@ export function SetupScreen({ onStart }: Props) {
         <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">
           讨论话题
         </h2>
-
-        {/* Preset topics */}
         <div className="flex flex-wrap gap-2 mb-3">
           {PRESET_TOPICS.map(t => (
             <button
@@ -112,8 +207,6 @@ export function SetupScreen({ onStart }: Props) {
             </button>
           ))}
         </div>
-
-        {/* Custom topic */}
         <div className="flex items-center gap-3">
           <button
             onClick={() => setUseCustom(true)}
@@ -155,17 +248,7 @@ export function SetupScreen({ onStart }: Props) {
 
       {/* Start button */}
       <button
-        onClick={() => {
-          const selectedModels = MODELS.filter(m => selected.has(m.id))
-          onStart({
-            topic: useCustom ? customTopic.trim() : topic,
-            participants: selectedModels.map(m => ({
-              agentId: m.id,
-              name: m.name.split(' ')[0],
-            })),
-            durationSeconds: duration,
-          })
-        }}
+        onClick={handleStart}
         disabled={!canStart}
         className={`w-full py-3 rounded-xl font-semibold text-lg transition-all ${
           canStart

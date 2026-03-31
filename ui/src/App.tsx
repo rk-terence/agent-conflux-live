@@ -3,6 +3,7 @@ import { SetupScreen } from './components/SetupScreen'
 import { DiscussionScreen } from './components/DiscussionScreen'
 import { useDiscussion } from './hooks/useDiscussion'
 import type { Participant } from '@core/domain/types.ts'
+import type { ModelGateway } from '@core/model-gateway/types.ts'
 
 export type Screen = 'setup' | 'discussion'
 
@@ -10,6 +11,7 @@ export type SetupConfig = {
   topic: string
   participants: Participant[]
   durationSeconds: number
+  gateway: ModelGateway
 }
 
 export default function App() {

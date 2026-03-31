@@ -51,25 +51,41 @@ function splitSubtitles(text: string, maxChars = 20): string[] {
   return lines.slice(-2)
 }
 
-// Get the latest speech text for each currently speaking participant
+/**
+ * Get speech bubbles to display on the roundtable.
+ * Shows the latest sentence for:
+ *  - The current speaker (from participant state)
+ *  - Participants in the most recent collision
+ */
 function getSpeakerBubbles(
   participants: ParticipantDisplay[],
   events: DomainEvent[],
 ): Map<string, string> {
-  const speakers = new Set(participants.filter(p => p.state === 'speaking').map(p => p.id))
   const bubbles = new Map<string, string>()
+  if (events.length === 0) return bubbles
 
-  for (let i = events.length - 1; i >= 0; i--) {
-    const e = events[i]
-    if (e.kind === 'sentence_committed' && speakers.has(e.speakerId) && !bubbles.has(e.speakerId)) {
-      bubbles.set(e.speakerId, e.sentence)
-    }
-    if (bubbles.size === speakers.size) break
+  // Find who should have a bubble: current speaker + recent collision participants
+  const showIds = new Set<string>()
+  for (const p of participants) {
+    if (p.state === 'speaking') showIds.add(p.id)
   }
 
-  // For speakers without any sentence yet, show "..."
-  for (const id of speakers) {
-    if (!bubbles.has(id)) bubbles.set(id, '...')
+  // Check last event for collision
+  const last = events[events.length - 1]
+  if (last.kind === 'collision') {
+    for (const u of last.utterances) {
+      showIds.add(u.agentId)
+      bubbles.set(u.agentId, u.text)
+    }
+  }
+
+  // For current speaker, find their latest sentence
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i]
+    if (e.kind === 'sentence_committed' && showIds.has(e.speakerId) && !bubbles.has(e.speakerId)) {
+      bubbles.set(e.speakerId, e.sentence)
+    }
+    if (bubbles.size === showIds.size) break
   }
 
   return bubbles
@@ -78,6 +94,9 @@ function getSpeakerBubbles(
 export function RoundtableView({ participants, events }: Props) {
   const radius = Math.min(typeof window !== 'undefined' ? window.innerHeight * 0.38 : 380, 420)
   const bubbles = getSpeakerBubbles(participants, events)
+
+  // Participants with a bubble are visually "speaking" (includes collision)
+  const visualSpeakers = new Set(bubbles.keys())
 
   return (
     <div className="h-full flex items-center justify-center relative overflow-hidden">
@@ -136,7 +155,8 @@ export function RoundtableView({ participants, events }: Props) {
         {/* Seats */}
         {participants.map((p, i) => {
           const pos = getSeatPosition(i, participants.length, radius)
-          const isSpeaking = p.state === 'speaking'
+          const isSpeaking = visualSpeakers.has(p.id)
+          const isListening = !isSpeaking && visualSpeakers.size > 0
           const hex = COLOR_HEX[p.color] ?? '#9ca3af'
 
           return (
@@ -168,11 +188,11 @@ export function RoundtableView({ participants, events }: Props) {
                   {p.name}
                 </span>
                 <span className={`text-[10px] ${
-                  p.state === 'speaking' ? 'text-yellow-500' :
-                  p.state === 'listening' ? 'text-gray-400' : 'text-gray-600'
+                  isSpeaking ? 'text-yellow-500' :
+                  isListening ? 'text-gray-400' : 'text-gray-600'
                 }`}>
-                  {p.state === 'speaking' ? '发言中' :
-                   p.state === 'listening' ? '倾听' : '沉默'}
+                  {isSpeaking ? '发言中' :
+                   isListening ? '倾听' : '沉默'}
                 </span>
               </div>
             </div>
