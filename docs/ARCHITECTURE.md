@@ -165,9 +165,14 @@ The `normalization` module translates raw model outputs into domain-usable resul
 Responsibilities:
 
 - trim and sanitize returned text
-- classify `[silence]`
+- classify `[silence]` in reaction mode
 - detect empty continuation output
+- classify `finishReason: "max_tokens"` as error (truncated output violates sentence atomicity)
 - preserve raw output for debug use
+
+Exception rules:
+
+- **`[silence]` in continuation mode → `end_of_turn`.** The PRD strictly defines end-of-turn as "zero content tokens." However, the shared system prompt instructs models to reply `[silence]` when they have nothing to say, and continuation mode reuses this prompt. If a model echoes `[silence]` instead of continuing speech, treating it as valid speech would pollute the transcript with a control marker. Treating it as `end_of_turn` is a pragmatic choice: the model is signaling it has nothing more to say, which is semantically equivalent to ending its turn. This is an intentional deviation from the strict PRD definition, chosen to prevent transcript corruption.
 
 Must not:
 
