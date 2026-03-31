@@ -15,24 +15,23 @@ export type PresetAgent = {
   readonly name: string;
   readonly provider: string;
   readonly model: string;
+  /** If true, model uses reasoning/thinking tokens that consume the max_tokens budget.
+   *  Gateway will request higher max_tokens to compensate. */
+  readonly thinking?: boolean;
 };
 
-/** Budget preset for debug/PAYG — cheap but capable models */
+/** Budget preset — cheap but capable, for dev/iteration */
 export const PRESET_BUDGET: readonly PresetAgent[] = [
   { agentId: "deepseek", name: "DeepSeek",  provider: "DeepSeek",  model: "deepseek/deepseek-chat" },
-  { agentId: "gemini",   name: "Gemini",    provider: "Google",    model: "google/gemini-2.5-flash" },
+  { agentId: "gemini",   name: "Gemini",    provider: "Google",    model: "google/gemini-2.5-flash", thinking: true },
   { agentId: "qwen",     name: "Qwen",      provider: "Alibaba",   model: "qwen/qwen3-vl-plus" },
-  { agentId: "gpt",      name: "GPT-5n",    provider: "OpenAI",    model: "openai/gpt-5-nano" },
-  { agentId: "mistral",  name: "Mistral",   provider: "Mistral",   model: "mistralai/mistral-large-2512" },
 ];
 
-/** Premium preset for subscription — stronger models */
+/** Premium preset — strongest available models */
 export const PRESET_PREMIUM: readonly PresetAgent[] = [
   { agentId: "deepseek", name: "DeepSeek",  provider: "DeepSeek",  model: "deepseek/deepseek-v3.2" },
-  { agentId: "gemini",   name: "Gemini",    provider: "Google",    model: "google/gemini-3-flash-preview" },
+  { agentId: "gemini",   name: "Gemini",    provider: "Google",    model: "google/gemini-2.5-pro", thinking: true },
   { agentId: "qwen",     name: "Qwen",      provider: "Alibaba",   model: "qwen/qwen3-max" },
-  { agentId: "gpt",      name: "GPT-5n",    provider: "OpenAI",    model: "openai/gpt-5-nano" },
-  { agentId: "mistral",  name: "Mistral",   provider: "Mistral",   model: "mistralai/mistral-large-2512" },
 ];
 
 /** Build agentModels record from a preset agent list */
@@ -40,6 +39,11 @@ export function presetToAgentModels(agents: readonly PresetAgent[]): Record<stri
   const map: Record<string, string> = {};
   for (const a of agents) map[a.agentId] = a.model;
   return map;
+}
+
+/** Build thinking model set from a preset agent list */
+export function presetToThinkingSet(agents: readonly PresetAgent[]): ReadonlySet<string> {
+  return new Set(agents.filter(a => a.thinking).map(a => a.agentId));
 }
 
 // ---------------------------------------------------------------------------
@@ -57,6 +61,8 @@ export type ZenMuxConfig = {
   readonly defaultModel?: string;
   /** Optional temperature override (default 0.7) */
   readonly temperature?: number;
+  /** Agent IDs whose models use thinking tokens (need higher max_tokens) */
+  readonly thinkingAgents?: ReadonlySet<string>;
 };
 
 type OaiMessage = {
@@ -109,12 +115,16 @@ function extractSilence(text: string): string | null {
 // Gateway (OpenAI protocol via ZenMux, no stop sequences)
 // ---------------------------------------------------------------------------
 
+/** Thinking models need higher max_tokens to accommodate reasoning overhead */
+const THINKING_TOKEN_MULTIPLIER = 10;
+
 export class ZenMuxGateway implements ModelGateway {
   private readonly apiKey: string;
   private readonly baseUrl: string;
   private readonly agentModels: Record<string, string>;
   private readonly defaultModel: string;
   private readonly temperature: number;
+  private readonly thinkingAgents: ReadonlySet<string>;
 
   constructor(config: ZenMuxConfig) {
     // Strip invisible Unicode chars that break HTTP headers
@@ -123,6 +133,7 @@ export class ZenMuxGateway implements ModelGateway {
     this.agentModels = config.agentModels;
     this.defaultModel = config.defaultModel ?? "deepseek/deepseek-chat";
     this.temperature = config.temperature ?? 0.7;
+    this.thinkingAgents = config.thinkingAgents ?? new Set();
   }
 
   async generate(input: ModelCallInput): Promise<ModelCallOutput> {
@@ -132,17 +143,22 @@ export class ZenMuxGateway implements ModelGateway {
 
     const model = this.agentModels[input.agentId] ?? this.defaultModel;
     const messages = this.buildMessages(input);
+    const isThinking = this.thinkingAgents.has(input.agentId);
+
+    // Thinking models (e.g. Gemini 2.5 Pro) consume reasoning tokens from the
+    // max_tokens budget, so we request a much higher limit to ensure the actual
+    // output isn't truncated. For non-thinking models we keep the budget tight.
+    const effectiveMaxTokens = isThinking
+      ? input.maxTokens * THINKING_TOKEN_MULTIPLIER
+      : input.maxTokens;
 
     // No stop sequences — we extract the first sentence ourselves.
-    // Disable reasoning to cut latency and cost; roundtable discussion
-    // only needs one short sentence per call, not deep thinking.
     const body: Record<string, unknown> = {
       model,
       messages,
-      max_tokens: input.maxTokens,
-      max_completion_tokens: input.maxTokens,
+      max_tokens: effectiveMaxTokens,
+      max_completion_tokens: effectiveMaxTokens,
       temperature: this.temperature,
-      reasoning: { enabled: false },
     };
 
     const t0 = performance.now();
@@ -158,7 +174,16 @@ export class ZenMuxGateway implements ModelGateway {
     });
 
     if (!res.ok) {
-      const detail = await res.text().catch(() => "");
+      const raw = await res.text().catch(() => "");
+      // Extract useful error info; truncate HTML/long responses to keep logs clean
+      let detail = raw;
+      try {
+        const parsed = JSON.parse(raw);
+        detail = parsed?.error?.message ?? parsed?.error?.type ?? raw;
+      } catch {
+        // Not JSON — likely HTML error page, just show status code
+        detail = raw.length > 200 ? "(response body too large)" : raw;
+      }
       return {
         agentId: input.agentId,
         text: `HTTP ${res.status}: ${detail}`,
@@ -183,11 +208,6 @@ export class ZenMuxGateway implements ModelGateway {
 
     let text = choice.message.content ?? "";
 
-    // Strip echoed prefill for continuation mode
-    if (input.mode === "continuation" && input.assistantPrefill && text.startsWith(input.assistantPrefill)) {
-      text = text.slice(input.assistantPrefill.length);
-    }
-
     // Check for silence first
     const silence = extractSilence(text);
     if (silence) {
@@ -200,13 +220,12 @@ export class ZenMuxGateway implements ModelGateway {
       };
     }
 
-    // Extract first sentence — we own the boundary, punctuation intact
-    text = extractFirstSentence(text);
-
+    // Return the full response — no sentence extraction.
+    // Models now produce their complete speech in one call.
     return {
       agentId: input.agentId,
-      text,
-      finishReason: "stop_sequence",
+      text: text.trim(),
+      finishReason: "completed",
       latencyMs,
       rawResponse: json,
     };

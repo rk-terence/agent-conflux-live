@@ -6,21 +6,38 @@
 # Project Structure
 
 - `src/` — Framework-agnostic core engine (TypeScript, pnpm root)
+- `src/cli/` — CLI runner with detailed logging for dev/iteration
+- `src/negotiation/` — Collision resolution via multi-round agent negotiation
 - `ui/` — React UI application (separate pnpm project, imports core via `@core/` alias)
 - Two pnpm projects: root (`pnpm test`) and `ui/` (`cd ui && pnpm dev`)
 
 # Development
 
 ```bash
-pnpm test                    # run core tests (100 tests)
+pnpm test                    # run core tests (66 tests)
 cd ui && pnpm dev            # start UI dev server (localhost:5173)
+
+# CLI runner (reads .env for ZENMUX_API_KEY)
+npx tsx src/cli/run.ts                              # real API, budget preset
+npx tsx src/cli/run.ts --gateway smart-dummy         # offline testing
+npx tsx src/cli/run.ts --preset premium --duration 120
+npx tsx src/cli/run.ts --help                        # all options
 ```
 
 # Key Design Decisions
 
-- Domain `AgentOutput` has no `error` variant — errors are handled by engine before reaching reducer
-- `[silence]` in continuation mode → `end_of_turn` (documented exception in ARCHITECTURE.md)
-- `finishReason: "max_tokens"` → error (truncated output violates sentence atomicity)
-- `frozenHistorySnapshot` captures events BEFORE the speaker's first sentence
-- End-of-turn iteration discards listener responses (they saw stale "someone speaking" context)
-- Engine returns structured `{ ok: false, errors, debug }` on failure, never throws for gateway errors
+- **No continuation mode** — models produce their complete speech in one call (reaction mode only, max_tokens=300)
+- **No speech collision / interruption** — only gap collisions exist; when someone is speaking, others wait
+- **No "speaking" phase** — reducer stays in `turn_gap`; single speaker commits text + turn_ended atomically
+- **Last speaker sits out** — the agent who just spoke is skipped in the next iteration, giving others a chance
+- **Collision → negotiation** — when multiple agents speak simultaneously, a multi-round negotiation determines who gets the floor; each agent decides "insist" or "yield" based on full discussion context
+- **All-yield retriggers** — if everyone yields in negotiation, all candidates re-enter the next round (up to 5 rounds max)
+- **@mention awareness** — negotiation prompts detect if an agent was recently @-mentioned and hint they should speak
+- Domain `AgentOutput` has no `error` variant — errors are retried once per agent, then converted to silence
+- `finishReason: "max_tokens"` is treated as speech (not an error), since models now produce full responses
+- Engine returns `{ ok: true }` always (errors → silence); never `{ ok: false }` to the runner
+- Normalization strips parenthetical actions, speaker prefixes, history hallucinations, and fragments < 4 chars
+- Verbatim repeat detection across ALL turns and collision utterances → converted to silence
+- Per-model thinking config: models with `thinking: true` get 10x max_tokens to accommodate reasoning overhead
+- Collision virtual time = `人数 × 0.5s` (not proportional to utterance length)
+- History projection includes timestamps and shows negotiation outcomes (who yielded, who spoke)

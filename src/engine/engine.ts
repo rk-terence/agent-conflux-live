@@ -1,11 +1,13 @@
 import type { SessionState, DomainEvent, AgentIterationResult, IterationResult } from "../domain/types.js";
 import { reduceIteration } from "../domain/reducer.js";
 import { projectHistory } from "../history/projector.js";
-import { buildReactionInput, buildContinuationInput } from "../prompting/builder.js";
+import { buildReactionInput } from "../prompting/builder.js";
 import type { CollisionContext } from "../prompting/builder.js";
 import type { ModelGateway, ModelCallInput, ModelCallOutput } from "../model-gateway/types.js";
 import { normalizeOutput } from "../normalization/normalize.js";
 import type { NormalizedResult } from "../normalization/normalize.js";
+import { negotiateCollision } from "../negotiation/negotiation.js";
+import type { NegotiationOutcome, CollisionCandidate } from "../negotiation/negotiation.js";
 
 // --- Public types ---
 
@@ -15,6 +17,8 @@ export type IterationDebugInfo = {
   readonly rawOutputs: readonly ModelCallOutput[];
   readonly normalizedResults: readonly NormalizedResult[];
   readonly wallClockMs: number;
+  /** Present when a collision triggered negotiation */
+  readonly negotiation?: NegotiationOutcome;
 };
 
 export type EngineIterationSuccess = {
@@ -61,16 +65,17 @@ export async function runIteration(
   const iterationId = state.iterationCount;
   const allNames = state.participants.map(p => p.name);
 
-  // Step 2-4: Determine mode, project history, build call inputs
-  const callInputs = state.participants.map(p => {
-    if (state.phase === "speaking" && state.currentTurn!.speakerId === p.agentId) {
-      return buildSpeakerCall(state, p.agentId, p.name, allNames, iterationId, abortSignal);
-    }
-    return buildListenerCall(state, p.agentId, p.name, allNames, iterationId, abortSignal);
-  });
+  // Who spoke last? They sit out this round to give others a chance.
+  // If nobody else wants to speak, the silence system handles it.
+  const lastSpeakerId = findLastSpeaker(state);
 
-  // Step 5: Execute all model calls concurrently
-  // Catch per-call rejections so we get complete debug info and structured errors.
+  // Build reaction-mode calls for participants (skip last speaker)
+  const activeParticipants = state.participants.filter(p => p.agentId !== lastSpeakerId);
+  const callInputs = activeParticipants.map(p =>
+    buildAgentCall(state, p.agentId, p.name, allNames, iterationId, abortSignal),
+  );
+
+  // Execute all model calls concurrently
   const rawOutputs: ModelCallOutput[] = await Promise.all(
     callInputs.map(input =>
       gateway.generate(input).catch((err: unknown): ModelCallOutput => ({
@@ -81,10 +86,49 @@ export async function runIteration(
     ),
   );
 
-  // Step 6: Normalize all responses
-  const normalizedResults = rawOutputs.map((output, i) =>
+  // Normalize all responses
+  let normalizedResults = rawOutputs.map((output, i) =>
     normalizeOutput(output, callInputs[i].mode),
   );
+
+  // Add the skipped speaker as silence so the reducer sees all participants
+  if (lastSpeakerId) {
+    normalizedResults = [
+      ...normalizedResults,
+      {
+        agentId: lastSpeakerId,
+        output: { type: "silence" as const },
+        raw: { agentId: lastSpeakerId, text: "", finishReason: "completed" as const },
+      },
+    ];
+  }
+
+  // Retry failed agents individually (keep successful results)
+  const errorAgentIds = normalizedResults
+    .filter(r => r.output.type === "error")
+    .map(r => r.agentId);
+
+  if (errorAgentIds.length > 0 && errorAgentIds.length < callInputs.length) {
+    const retryInputs = callInputs.filter(ci => errorAgentIds.includes(ci.agentId));
+    const retryOutputs = await Promise.all(
+      retryInputs.map(input =>
+        gateway.generate(input).catch((err: unknown): ModelCallOutput => ({
+          agentId: input.agentId,
+          text: err instanceof Error ? err.message : String(err),
+          finishReason: "error",
+        })),
+      ),
+    );
+
+    const retryNormalized = retryOutputs.map((output, i) =>
+      normalizeOutput(output, retryInputs[i].mode),
+    );
+
+    const retryMap = new Map(retryNormalized.map(r => [r.agentId, r]));
+    normalizedResults = normalizedResults.map(r =>
+      retryMap.has(r.agentId) ? retryMap.get(r.agentId)! : r,
+    );
+  }
 
   const buildDebug = (): IterationDebugInfo => ({
     iterationId,
@@ -94,23 +138,27 @@ export async function runIteration(
     wallClockMs: Date.now() - startMs,
   });
 
-  // Engine's responsibility: errors must not reach the reducer
-  const errorResults = normalizedResults.filter(r => r.output.type === "error");
-  if (errorResults.length > 0) {
-    return {
-      ok: false,
-      errors: errorResults.map(r => ({
-        agentId: r.agentId,
-        message: (r.output as { type: "error"; message: string }).message,
-      })),
-      debug: buildDebug(),
-    };
-  }
+  // Convert persistent errors to silence so the iteration can proceed
+  normalizedResults = normalizedResults.map(r =>
+    r.output.type === "error"
+      ? { ...r, output: { type: "silence" as const } }
+      : r,
+  );
 
-  // Step 7: Commit through the domain reducer
-  const agentResults: AgentIterationResult[] = normalizedResults.map(r => ({
+  // Deduplicate — if a model repeats something it already said, treat as silence
+  const deduped = normalizedResults.map(r => {
+    if (r.output.type !== "speech") return r;
+    const text = (r.output as { text: string }).text;
+    if (isRepeat(text, r.agentId, state)) {
+      return { ...r, output: { type: "silence" as const } };
+    }
+    return r;
+  });
+
+  // Commit through the domain reducer
+  const agentResults: AgentIterationResult[] = deduped.map(r => ({
     agentId: r.agentId,
-    output: r.output as AgentIterationResult["output"], // safe: errors filtered above
+    output: r.output as AgentIterationResult["output"],
   }));
 
   const iterationResult: IterationResult = {
@@ -131,17 +179,86 @@ export async function runIteration(
     );
   }
 
+  // If a gap collision occurred, run negotiation to resolve who speaks
+  const gapCollision = events.find(e => e.kind === "collision" && e.during === "gap");
+  let negotiation: NegotiationOutcome | undefined;
+
+  if (gapCollision && gapCollision.kind === "collision") {
+    const nameMap = new Map(state.participants.map(p => [p.agentId, p.name]));
+    const candidates: CollisionCandidate[] = gapCollision.utterances.map(u => ({
+      agentId: u.agentId,
+      agentName: nameMap.get(u.agentId) ?? u.agentId,
+      utterance: u.text,
+    }));
+
+    // Build perspective-specific history for each candidate
+    const perspectiveHistories = new Map<string, string>();
+    for (const c of candidates) {
+      perspectiveHistories.set(
+        c.agentId,
+        projectHistory({
+          events: nextState.events,
+          currentTurn: null,
+          perspectiveAgentId: c.agentId,
+          participants: state.participants,
+        }),
+      );
+    }
+
+    negotiation = await negotiateCollision(
+      candidates,
+      allNames,
+      state.topic,
+      perspectiveHistories,
+      gateway,
+      state.sessionId,
+      iterationId,
+      abortSignal,
+    );
+
+    // If negotiation produced a winner, replay their utterance through the reducer
+    if (negotiation.winnerId) {
+      const winnerUtterance = gapCollision.utterances.find(
+        u => u.agentId === negotiation!.winnerId,
+      );
+      if (winnerUtterance) {
+        const replayResults: AgentIterationResult[] = state.participants.map(p => ({
+          agentId: p.agentId,
+          output: p.agentId === negotiation!.winnerId
+            ? { type: "speech" as const, text: winnerUtterance.text, tokenCount: winnerUtterance.tokenCount }
+            : { type: "silence" as const },
+        }));
+
+        const replayIteration: IterationResult = {
+          iterationId: iterationId + 1,
+          results: replayResults,
+        };
+
+        try {
+          const replayReduced = reduceIteration(nextState, replayIteration);
+          nextState = replayReduced.nextState;
+          events = [...events, ...replayReduced.events];
+        } catch (err: unknown) {
+          throw new EngineFatalError(
+            `Reducer error (post-negotiation): ${err instanceof Error ? err.message : String(err)}`,
+            buildDebug(),
+          );
+        }
+      }
+    }
+  }
+
   return {
     ok: true,
     nextState,
     events,
-    debug: buildDebug(),
+    debug: { ...buildDebug(), negotiation },
   };
 }
 
 // --- Internal helpers ---
 
-function buildSpeakerCall(
+function buildAgentCall(
   state: SessionState,
   agentId: string,
   agentName: string,
@@ -149,46 +266,9 @@ function buildSpeakerCall(
   iterationId: number,
   abortSignal?: AbortSignal,
 ): ModelCallInput {
-  const turn = state.currentTurn!;
-
-  // Use frozen history snapshot for continuation mode (architecture invariant 4)
-  const frozenHistoryText = projectHistory({
-    events: turn.frozenHistorySnapshot,
-    currentTurn: null, // no in-progress speech in frozen snapshot
-    perspectiveAgentId: agentId,
-    participants: state.participants,
-  });
-
-  // Assistant prefill: all sentences spoken so far in this turn
-  const assistantPrefill = turn.sentences.join("");
-
-  return buildContinuationInput({
-    sessionId: state.sessionId,
-    iterationId,
-    agentId,
-    agentName,
-    allNames,
-    topic: state.topic,
-    frozenHistoryText,
-    assistantPrefill,
-    speakingDurationSeconds: turn.speakingDuration,
-    sentenceCount: turn.sentenceCount,
-    abortSignal,
-  });
-}
-
-function buildListenerCall(
-  state: SessionState,
-  agentId: string,
-  agentName: string,
-  allNames: string[],
-  iterationId: number,
-  abortSignal?: AbortSignal,
-): ModelCallInput {
-  // Full current history including in-progress speech
   const historyText = projectHistory({
     events: state.events,
-    currentTurn: state.currentTurn,
+    currentTurn: null,
     perspectiveAgentId: agentId,
     participants: state.participants,
   });
@@ -214,7 +294,6 @@ function buildCollisionContext(
 ): CollisionContext | undefined {
   const events = state.events;
 
-  // Count consecutive collisions from the end of the event list
   let streak = 0;
   const colliderCounts = new Map<string, number>();
 
@@ -231,7 +310,6 @@ function buildCollisionContext(
 
   const nameMap = new Map(state.participants.map(p => [p.agentId, p.name]));
 
-  // "Frequent colliders" = those who spoke in every collision of the streak
   const frequentColliders = [...colliderCounts.entries()]
     .filter(([id, count]) => id !== agentId && count >= streak)
     .map(([id]) => nameMap.get(id) ?? id);
@@ -241,4 +319,36 @@ function buildCollisionContext(
     .map(id => nameMap.get(id) ?? id);
 
   return { streak, otherNames, frequentColliders };
+}
+
+/**
+ * Find the agent who spoke most recently (last turn_ended).
+ * They sit out the next round to give others a chance.
+ * Returns null if nobody has spoken yet.
+ */
+function findLastSpeaker(state: SessionState): string | null {
+  for (let i = state.events.length - 1; i >= 0; i--) {
+    const e = state.events[i];
+    if (e.kind === "turn_ended") return e.speakerId;
+  }
+  return null;
+}
+
+/**
+ * Check whether a speech output is a verbatim repeat of something
+ * this agent has said before — across ALL turns.
+ */
+function isRepeat(text: string, agentId: string, state: SessionState): boolean {
+  for (const e of state.events) {
+    if (e.kind === "sentence_committed" && e.speakerId === agentId && e.sentence === text) {
+      return true;
+    }
+    if (e.kind === "collision") {
+      for (const u of e.utterances) {
+        if (u.agentId === agentId && u.text === text) return true;
+      }
+    }
+  }
+
+  return false;
 }

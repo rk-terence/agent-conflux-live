@@ -5,13 +5,17 @@
   "main": "index.js",
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "cli": "tsx src/cli/run.ts",
+    "cli:demo": "tsx src/cli/run.ts --gateway smart-dummy",
+    "cli:help": "tsx src/cli/run.ts --help"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "packageManager": "pnpm@10.31.0",
   "devDependencies": {
+    "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vitest": "^4.1.2"
   }

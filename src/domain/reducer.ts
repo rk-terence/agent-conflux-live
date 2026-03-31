@@ -5,7 +5,6 @@ import type {
   AgentIterationResult,
   AgentOutput,
   DomainEvent,
-  CurrentTurn,
   SilenceState,
   SentenceCommittedEvent,
   CollisionEvent,
@@ -17,6 +16,7 @@ import {
   TOKEN_TO_SECONDS,
   SILENCE_BACKOFF_SCHEDULE,
   CUMULATIVE_SILENCE_LIMIT,
+  COLLISION_BASE_SECONDS_PER_PERSON,
 } from "./constants.js";
 
 const SILENCE_RESET: SilenceState = { consecutiveCount: 0, cumulativeSeconds: 0 };
@@ -29,135 +29,8 @@ export function reduceIteration(
     return { nextState: state, events: [] };
   }
 
-  if (state.phase === "speaking") {
-    return reduceSpeakingPhase(state, result);
-  }
-
+  // Simplified: no "speaking" phase. Every iteration is a turn_gap poll.
   return reduceTurnGapPhase(state, result);
-}
-
-// --- Speaking phase ---
-
-function reduceSpeakingPhase(
-  state: SessionState,
-  result: IterationResult,
-): ReducerOutput {
-  const turn = state.currentTurn!;
-  const speakerResult = result.results.find(r => r.agentId === turn.speakerId);
-  const listenerResults = result.results.filter(r => r.agentId !== turn.speakerId);
-
-  if (!speakerResult) {
-    throw new Error(
-      `Speaker ${turn.speakerId} is missing from iteration results.`,
-    );
-  }
-
-  const speakerOutput = speakerResult.output;
-  const speakingListeners = listenerResults.filter(r => r.output.type === "speech");
-
-  if (speakerOutput.type === "silence") {
-    throw new Error(
-      `Speaker ${turn.speakerId} returned [silence] in continuation mode. ` +
-      `This is a protocol error — continuation mode only produces speech or end_of_turn.`,
-    );
-  }
-
-  if (speakerOutput.type === "end_of_turn") {
-    return handleEndOfTurn(state, turn);
-  }
-
-  // Speaker produced speech
-  const { text, tokenCount } = speakerOutput;
-  const duration = tokenCount * TOKEN_TO_SECONDS;
-  const newTime = state.virtualTime + duration;
-
-  const sentenceEvent: SentenceCommittedEvent = {
-    kind: "sentence_committed",
-    timestamp: newTime,
-    speakerId: turn.speakerId,
-    sentence: text,
-    tokenCount,
-    durationSeconds: duration,
-    turnSentenceIndex: turn.sentenceCount,
-  };
-
-  if (speakingListeners.length === 0) {
-    // Uninterrupted continuation
-    const updatedTurn: CurrentTurn = {
-      ...turn,
-      sentences: [...turn.sentences, text],
-      sentenceTokenCounts: [...turn.sentenceTokenCounts, tokenCount],
-      speakingDuration: turn.speakingDuration + duration,
-      sentenceCount: turn.sentenceCount + 1,
-    };
-
-    return {
-      nextState: {
-        ...state,
-        virtualTime: newTime,
-        currentTurn: updatedTurn,
-        silenceState: SILENCE_RESET,
-        events: [...state.events, sentenceEvent],
-        iterationCount: state.iterationCount + 1,
-      },
-      events: [sentenceEvent],
-    };
-  }
-
-  // Collision during speech
-  const collisionEvent: CollisionEvent = {
-    kind: "collision",
-    timestamp: newTime,
-    during: "speech",
-    utterances: [
-      { agentId: turn.speakerId, text, tokenCount },
-      ...speakingListeners.map(r => {
-        const o = r.output as Extract<AgentOutput, { type: "speech" }>;
-        return { agentId: r.agentId, text: o.text, tokenCount: o.tokenCount };
-      }),
-    ],
-  };
-
-  return {
-    nextState: {
-      ...state,
-      virtualTime: newTime,
-      phase: "turn_gap",
-      currentTurn: null,
-      silenceState: SILENCE_RESET,
-      events: [...state.events, sentenceEvent, collisionEvent],
-      iterationCount: state.iterationCount + 1,
-    },
-    events: [sentenceEvent, collisionEvent],
-  };
-}
-
-function handleEndOfTurn(
-  state: SessionState,
-  turn: CurrentTurn,
-): ReducerOutput {
-  // Listener responses from this iteration are discarded:
-  // they were generated while seeing "someone is speaking" context,
-  // not a true turn gap. The next iteration will re-poll everyone.
-  const turnEndEvent: TurnEndedEvent = {
-    kind: "turn_ended",
-    timestamp: state.virtualTime,
-    speakerId: turn.speakerId,
-    totalSentences: turn.sentenceCount,
-    totalDuration: turn.speakingDuration,
-  };
-
-  return {
-    nextState: {
-      ...state,
-      phase: "turn_gap",
-      currentTurn: null,
-      silenceState: SILENCE_RESET,
-      events: [...state.events, turnEndEvent],
-      iterationCount: state.iterationCount + 1,
-    },
-    events: [turnEndEvent],
-  };
 }
 
 // --- Turn gap phase ---
@@ -236,6 +109,10 @@ function handleAllSilent(state: SessionState): ReducerOutput {
   };
 }
 
+/**
+ * Single speaker: commit their full text and end the turn immediately.
+ * No "speaking" phase — the model says everything in one call.
+ */
 function handleSingleSpeaker(
   state: SessionState,
   speaker: AgentIterationResult,
@@ -254,27 +131,25 @@ function handleSingleSpeaker(
     turnSentenceIndex: 0,
   };
 
-  const newTurn: CurrentTurn = {
+  const turnEndEvent: TurnEndedEvent = {
+    kind: "turn_ended",
+    timestamp: newTime,
     speakerId: speaker.agentId,
-    startTime: state.virtualTime,
-    frozenHistorySnapshot: state.events, // snapshot BEFORE the speaker's first sentence
-    sentences: [o.text],
-    sentenceTokenCounts: [o.tokenCount],
-    speakingDuration: duration,
-    sentenceCount: 1,
+    totalSentences: 1,
+    totalDuration: duration,
   };
 
   return {
     nextState: {
       ...state,
       virtualTime: newTime,
-      phase: "speaking",
-      currentTurn: newTurn,
+      phase: "turn_gap",
+      currentTurn: null,
       silenceState: SILENCE_RESET,
-      events: [...state.events, sentenceEvent],
+      events: [...state.events, sentenceEvent, turnEndEvent],
       iterationCount: state.iterationCount + 1,
     },
-    events: [sentenceEvent],
+    events: [sentenceEvent, turnEndEvent],
   };
 }
 
@@ -287,8 +162,8 @@ function handleGapCollision(
     return { agentId: r.agentId, text: o.text, tokenCount: o.tokenCount };
   });
 
-  const maxTokens = Math.max(...utterances.map(u => u.tokenCount));
-  const newTime = state.virtualTime + maxTokens * TOKEN_TO_SECONDS;
+  const collisionDuration = utterances.length * COLLISION_BASE_SECONDS_PER_PERSON;
+  const newTime = state.virtualTime + collisionDuration;
 
   const collisionEvent: CollisionEvent = {
     kind: "collision",

@@ -68,7 +68,7 @@ describe("runIteration", () => {
     expect(result.events[0]).toMatchObject({ kind: "silence_extended" });
   });
 
-  it("creates new turn when one agent speaks at turn_gap", async () => {
+  it("creates turn and ends it immediately when one agent speaks", async () => {
     const state = initSession();
     const gw = new DummyGateway((input: ModelCallInput) =>
       input.agentId === "gpt" ? "我先来说一个观点。" : "[silence]",
@@ -77,15 +77,16 @@ describe("runIteration", () => {
     const result = await runIteration(state, gw);
     expectSuccess(result);
 
-    expect(result.nextState.phase).toBe("speaking");
-    expect(result.nextState.currentTurn!.speakerId).toBe("gpt");
+    expect(result.nextState.phase).toBe("turn_gap");
+    expect(result.nextState.currentTurn).toBeNull();
     expect(result.events[0]).toMatchObject({ kind: "sentence_committed", speakerId: "gpt" });
+    expect(result.events[1]).toMatchObject({ kind: "turn_ended", speakerId: "gpt" });
   });
 
   it("produces gap collision when multiple agents speak", async () => {
     const state = initSession();
     const gw = new DummyGateway((input: ModelCallInput) =>
-      input.agentId === "deepseek" ? "[silence]" : "我想说——",
+      input.agentId === "deepseek" ? "[silence]" : "我想说——这是一个好问题。",
     );
 
     const result = await runIteration(state, gw);
@@ -95,77 +96,17 @@ describe("runIteration", () => {
     expect(result.events[0]).toMatchObject({ kind: "collision", during: "gap" });
   });
 
-  it("uses continuation mode for current speaker", async () => {
-    let state = initSession();
-    const gw = new DummyGateway((input: ModelCallInput) => {
-      if (input.mode === "reaction") {
-        return input.agentId === "claude" ? "我有一个想法。" : "[silence]";
-      }
-      return "让我继续说。";
-    });
+  it("all agents use reaction mode (no continuation)", async () => {
+    const state = initSession();
+    const gw = new DummyGateway(() => "[silence]");
 
-    const r1 = await runIteration(state, gw);
-    expectSuccess(r1);
-    expect(r1.nextState.currentTurn!.speakerId).toBe("claude");
+    await runIteration(state, gw);
 
-    gw.calls.length = 0;
-    const r2 = await runIteration(r1.nextState, gw);
-    expectSuccess(r2);
-
-    const speakerCall = gw.calls.find(c => c.agentId === "claude")!;
-    expect(speakerCall.mode).toBe("continuation");
-    expect(speakerCall.assistantPrefill).toBe("我有一个想法。");
-    expect(speakerCall.stopSequences).toEqual(["。", "！", "？", "\n"]);
-
-    const listenerCalls = gw.calls.filter(c => c.agentId !== "claude");
-    expect(listenerCalls.every(c => c.mode === "reaction")).toBe(true);
-  });
-
-  it("handles collision during speech", async () => {
-    let state = initSession();
-    let callCount = 0;
-    const gw = new DummyGateway((input: ModelCallInput) => {
-      if (callCount < 3) {
-        callCount++;
-        return input.agentId === "claude" ? "我有想法。" : "[silence]";
-      }
-      if (input.agentId === "claude") return "继续说。";
-      if (input.agentId === "gpt") return "等一下——";
-      return "[silence]";
-    });
-
-    const r1 = await runIteration(state, gw);
-    expectSuccess(r1);
-    const r2 = await runIteration(r1.nextState, gw);
-    expectSuccess(r2);
-
-    expect(r2.nextState.phase).toBe("turn_gap");
-    expect(r2.events.some(e => e.kind === "collision")).toBe(true);
-  });
-
-  it("handles end of turn (empty continuation)", async () => {
-    let state = initSession();
-    let iteration = 0;
-    const gw = new DummyGateway((input: ModelCallInput) => {
-      if (iteration === 0) {
-        return input.agentId === "claude" ? "一句话。" : "[silence]";
-      }
-      if (input.mode === "continuation") return "";
-      return "[silence]";
-    });
-
-    const r1 = await runIteration(state, gw);
-    expectSuccess(r1);
-    iteration = 1;
-    const r2 = await runIteration(r1.nextState, gw);
-    expectSuccess(r2);
-
-    expect(r2.nextState.phase).toBe("turn_gap");
-    expect(r2.events[0]).toMatchObject({ kind: "turn_ended" });
+    expect(gw.calls.every(c => c.mode === "reaction")).toBe(true);
   });
 
   describe("error handling", () => {
-    it("returns failure with debug when gateway returns error finishReason", async () => {
+    it("treats all-error as all-silence (no retry when everyone fails)", async () => {
       const state = initSession();
       const gw = new DummyGateway(() => "");
       gw.generate = async (input) => ({
@@ -175,70 +116,58 @@ describe("runIteration", () => {
       });
 
       const result = await runIteration(state, gw);
-      expectFailure(result);
-
-      expect(result.errors.length).toBe(3);
-      expect(result.errors[0].message).toContain("timeout");
-      // Debug info is available even on failure
-      expect(result.debug.callInputs).toHaveLength(3);
-      expect(result.debug.rawOutputs).toHaveLength(3);
-      expect(result.debug.normalizedResults).toHaveLength(3);
+      // All errors → converted to silence → iteration succeeds
+      expectSuccess(result);
+      expect(result.nextState.silenceState.consecutiveCount).toBe(1);
     });
 
-    it("catches gateway Promise rejections with full debug", async () => {
+    it("retries only the failed agent, keeps successful responses", async () => {
       const state = initSession();
+      let claudeCalls = 0;
       const gw = new DummyGateway(() => "");
-      gw.generate = async () => {
-        throw new Error("ECONNREFUSED");
+      gw.generate = async (input) => {
+        if (input.agentId === "claude") {
+          claudeCalls++;
+          if (claudeCalls <= 1) throw new Error("network error");
+          // Second call (retry) succeeds
+          return { agentId: input.agentId, text: "[silence]", finishReason: "completed" as const };
+        }
+        return { agentId: input.agentId, text: "[silence]", finishReason: "completed" as const };
       };
 
       const result = await runIteration(state, gw);
-      expectFailure(result);
-
-      expect(result.errors[0].message).toContain("ECONNREFUSED");
-      expect(result.debug.rawOutputs).toHaveLength(3);
-      expect(result.debug.rawOutputs.every(o => o.finishReason === "error")).toBe(true);
+      expectSuccess(result);
+      // Claude was called twice (initial + retry), others once each
+      expect(claudeCalls).toBe(2);
     });
 
-    it("returns failure on max_tokens truncation", async () => {
+    it("converts persistent errors to silence after retry", async () => {
+      const state = initSession();
+      const gw = new DummyGateway(() => "");
+      gw.generate = async (input) => {
+        if (input.agentId === "claude") throw new Error("always fails");
+        return { agentId: input.agentId, text: "[silence]", finishReason: "completed" as const };
+      };
+
+      const result = await runIteration(state, gw);
+      // Claude failed twice but was converted to silence
+      expectSuccess(result);
+      expect(result.nextState.silenceState.consecutiveCount).toBe(1);
+    });
+
+    it("treats max_tokens as speech (not an error)", async () => {
       const state = initSession();
       const gw = new DummyGateway(() => "");
       gw.generate = async (input) => ({
         agentId: input.agentId,
-        text: "半句话没说完",
-        finishReason: "max_tokens" as const,
+        text: input.agentId === "claude" ? "半句话没说完但也算数" : "[silence]",
+        finishReason: input.agentId === "claude" ? "max_tokens" as const : "completed" as const,
       });
 
       const result = await runIteration(state, gw);
-      expectFailure(result);
-
-      expect(result.errors[0].message).toContain("truncated");
-    });
-
-    it("returns failure only for errored agents, preserving others in debug", async () => {
-      const state = initSession();
-      let callIndex = 0;
-      const gw = new DummyGateway(() => "");
-      gw.generate = async (input) => {
-        callIndex++;
-        if (input.agentId === "claude") {
-          throw new Error("network error");
-        }
-        return {
-          agentId: input.agentId,
-          text: "[silence]",
-          finishReason: "completed" as const,
-        };
-      };
-
-      const result = await runIteration(state, gw);
-      expectFailure(result);
-
-      // Only claude errored
-      expect(result.errors).toHaveLength(1);
-      expect(result.errors[0].agentId).toBe("claude");
-      // But debug has all 3 results
-      expect(result.debug.normalizedResults).toHaveLength(3);
+      expectSuccess(result);
+      // max_tokens is treated as speech now, so one agent spoke
+      expect(result.events[0]).toMatchObject({ kind: "sentence_committed", speakerId: "claude" });
     });
   });
 
@@ -267,46 +196,5 @@ describe("runIteration", () => {
     const r2 = await runIteration(r1.nextState, gw);
     expectSuccess(r2);
     expect(r2.debug.iterationId).toBe(1);
-  });
-
-  it("uses frozen history for speaker, current history for listeners", async () => {
-    let state = initSession();
-    const gw = new DummyGateway((input: ModelCallInput) => {
-      if (input.mode === "reaction") {
-        return input.agentId === "claude" ? "我开始说。" : "[silence]";
-      }
-      return "继续。";
-    });
-
-    const r1 = await runIteration(state, gw);
-    expectSuccess(r1);
-    gw.calls.length = 0;
-
-    await runIteration(r1.nextState, gw);
-
-    const speakerCall = gw.calls.find(c => c.agentId === "claude")!;
-    const listenerCall = gw.calls.find(c => c.agentId === "gpt")!;
-
-    expect(speakerCall.historyText).not.toContain("正在说");
-    expect(listenerCall.historyText).toContain("正在说");
-  });
-
-  it("speaker self-status reflects current turn state", async () => {
-    let state = initSession();
-    const gw = new DummyGateway((input: ModelCallInput) => {
-      if (input.mode === "reaction") {
-        return input.agentId === "claude" ? "第一句。" : "[silence]";
-      }
-      return "第二句。";
-    });
-
-    const r1 = await runIteration(state, gw);
-    expectSuccess(r1);
-    gw.calls.length = 0;
-    await runIteration(r1.nextState, gw);
-
-    const speakerCall = gw.calls.find(c => c.agentId === "claude")!;
-    expect(speakerCall.selfStatusText).toContain("1 句");
-    expect(speakerCall.mode).toBe("continuation");
   });
 });

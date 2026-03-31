@@ -1,6 +1,5 @@
 import type {
   AgentId,
-  CurrentTurn,
   DomainEvent,
   Participant,
   CollisionUtterance,
@@ -8,96 +7,59 @@ import type {
 
 export type ProjectionParams = {
   readonly events: readonly DomainEvent[];
-  readonly currentTurn: CurrentTurn | null;
+  readonly currentTurn: null; // No longer used — turns complete in one step
   readonly perspectiveAgentId: AgentId;
   readonly participants: readonly Participant[];
 };
 
 export function projectHistory(params: ProjectionParams): string {
-  const { events, currentTurn, perspectiveAgentId, participants } = params;
+  const { events, perspectiveAgentId, participants } = params;
 
   const nameMap = new Map(participants.map(p => [p.agentId, p.name]));
   const name = (id: AgentId) =>
     id === perspectiveAgentId ? "你" : (nameMap.get(id) ?? id);
 
+  const fmtTime = (t: number) => `${t.toFixed(1)}s`;
+
   const blocks: string[] = [];
-  let pendingSpeaker: AgentId | null = null;
-  let pendingSentences: string[] = [];
 
-  const flushCompleted = () => {
-    if (pendingSpeaker !== null && pendingSentences.length > 0) {
-      blocks.push(`[${name(pendingSpeaker)}]: ${pendingSentences.join("")}`);
-    }
-    pendingSpeaker = null;
-    pendingSentences = [];
-  };
-
-  for (const event of events) {
+  for (let idx = 0; idx < events.length; idx++) {
+    const event = events[idx];
     switch (event.kind) {
       case "discussion_started":
+        blocks.push(`[${fmtTime(event.timestamp)}] 讨论开始 — 话题：${event.topic}`);
         break;
 
       case "sentence_committed": {
-        if (pendingSpeaker !== null && pendingSpeaker !== event.speakerId) {
-          flushCompleted();
-        }
-        pendingSpeaker = event.speakerId;
-        pendingSentences.push(event.sentence);
+        const speaker = name(event.speakerId);
+        blocks.push(`[${fmtTime(event.timestamp)}] [${speaker}]: ${event.sentence}`);
         break;
       }
 
       case "turn_ended":
-        flushCompleted();
+        // No need to render — turns end immediately after speech now
         break;
 
       case "collision": {
-        if (event.during === "speech") {
-          // The collision's first utterance is the speaker's sentence that
-          // was also emitted as the last sentence_committed event.
-          // Validate this assumption explicitly before removing the duplicate.
-          const speakerUtterance = event.utterances[0];
-          const lastPending = pendingSentences[pendingSentences.length - 1];
-
-          if (
-            pendingSpeaker === speakerUtterance.agentId &&
-            lastPending === speakerUtterance.text
-          ) {
-            pendingSentences.pop();
-          }
-
-          if (pendingSentences.length > 0) {
-            flushCompleted();
-          } else {
-            pendingSpeaker = null;
-          }
-          renderCollisionDuringSpeech(blocks, event.utterances, name, perspectiveAgentId);
+        // Look ahead: if the next event is a sentence_committed from one of
+        // the collision participants, it means negotiation resolved the collision.
+        const next = events[idx + 1];
+        const colliderIds = new Set(event.utterances.map(u => u.agentId));
+        if (next?.kind === "sentence_committed" && colliderIds.has(next.speakerId)) {
+          renderResolvedCollision(blocks, event.timestamp, event.utterances, next.speakerId, name, perspectiveAgentId, fmtTime);
         } else {
-          flushCompleted();
-          renderCollisionAtGap(blocks, event.utterances, name, perspectiveAgentId);
+          renderUnresolvedCollision(blocks, event.timestamp, event.utterances, name, perspectiveAgentId, fmtTime);
         }
         break;
       }
 
       case "silence_extended":
-        flushCompleted();
-        blocks.push(`(已经安静了 ${Math.round(event.cumulativeSeconds)} 秒)`);
+        blocks.push(`[${fmtTime(event.timestamp)}] (安静了 ${Math.round(event.intervalSeconds)} 秒，累计 ${Math.round(event.cumulativeSeconds)} 秒)`);
         break;
 
       case "discussion_ended":
-        flushCompleted();
         break;
     }
-  }
-
-  // In-progress speech
-  if (currentTurn && pendingSpeaker === currentTurn.speakerId && pendingSentences.length > 0) {
-    const elapsed = Math.round(currentTurn.speakingDuration);
-    const n = name(currentTurn.speakerId);
-    blocks.push(
-      `[${n} 正在说（已说 ${elapsed} 秒）]: ${pendingSentences.join("")}...... （${n} 还在继续说）`,
-    );
-  } else {
-    flushCompleted();
   }
 
   return blocks.join("\n\n");
@@ -105,46 +67,81 @@ export function projectHistory(params: ProjectionParams): string {
 
 // --- Collision renderers ---
 
-function renderCollisionDuringSpeech(
+/**
+ * Unresolved collision — nobody's speech got through (all yielded).
+ */
+function renderUnresolvedCollision(
   blocks: string[],
+  timestamp: number,
   utterances: readonly CollisionUtterance[],
   name: (id: AgentId) => string,
   perspectiveId: AgentId,
+  fmtTime: (t: number) => string,
 ): void {
-  const speaker = utterances[0];
-  const others = utterances.slice(1);
-  const otherNames = others.map(u => name(u.agentId)).join("、");
-  const header = `[${name(speaker.agentId)} 正在说时，${otherNames} 也开口了]`;
-  const lines = utterances.map(u => `[${name(u.agentId)}]: ${u.text}`);
+  const myUtterance = utterances.find(u => u.agentId === perspectiveId);
 
-  const involved = utterances.some(u => u.agentId === perspectiveId);
-  const annotation = involved
-    ? "(你们同时在说话)"
-    : utterances.length === 2
-      ? "(两人同时在说话)"
-      : `(${utterances.length}人同时在说话)`;
-
-  blocks.push(`${header}:\n${lines.join("\n")}\n${annotation}`);
+  if (myUtterance) {
+    const othersInCollision = utterances
+      .filter(u => u.agentId !== perspectiveId)
+      .map(u => name(u.agentId))
+      .join("、");
+    blocks.push(
+      `[${fmtTime(timestamp)}] 你和 ${othersInCollision} 同时开口了，你想说的是「${myUtterance.text}」，但声音重叠，没有人听清各自说了什么`,
+    );
+  } else {
+    const names = utterances.map(u => name(u.agentId));
+    const nameList =
+      names.length === 2
+        ? `${names[0]} 和 ${names[1]}`
+        : `${names.slice(0, -1).join("、")} 和 ${names[names.length - 1]}`;
+    blocks.push(`[${fmtTime(timestamp)}] ${nameList} 同时开口了，声音重叠，你没听清他们说了什么`);
+  }
 }
 
-function renderCollisionAtGap(
+/**
+ * Resolved collision — negotiation produced a winner.
+ */
+function renderResolvedCollision(
   blocks: string[],
+  timestamp: number,
   utterances: readonly CollisionUtterance[],
+  winnerId: AgentId,
   name: (id: AgentId) => string,
   perspectiveId: AgentId,
+  fmtTime: (t: number) => string,
 ): void {
-  const names = utterances.map(u => name(u.agentId));
-  const header =
-    names.length === 2
-      ? `[${names[0]} 和 ${names[1]} 同时说]`
-      : `[${names.slice(0, -1).join("、")} 和 ${names[names.length - 1]} 同时说]`;
+  const yielders = utterances
+    .filter(u => u.agentId !== winnerId)
+    .map(u => name(u.agentId));
+  const winnerName = name(winnerId);
+  const yielderNames = yielders.join("、");
 
-  const lines = utterances.map(u => `[${name(u.agentId)}]: ${u.text}`);
-
-  const involved = utterances.some(u => u.agentId === perspectiveId);
-  const annotation = involved
-    ? "(你们同时开口，都只说了一句)"
-    : "(几个人同时开口，都只说了一句)";
-
-  blocks.push(`${header}:\n${lines.join("\n")}\n${annotation}`);
+  if (perspectiveId === winnerId) {
+    // I am the winner
+    const allOthers = utterances
+      .filter(u => u.agentId !== perspectiveId)
+      .map(u => name(u.agentId))
+      .join("、");
+    blocks.push(
+      `[${fmtTime(timestamp)}] 你和 ${allOthers} 同时开口了，${yielderNames} 决定让你先说`,
+    );
+  } else if (utterances.some(u => u.agentId === perspectiveId)) {
+    // I was a yielder
+    const myUtterance = utterances.find(u => u.agentId === perspectiveId)!;
+    const allOthers = utterances
+      .filter(u => u.agentId !== perspectiveId)
+      .map(u => name(u.agentId));
+    const othersWhoYielded = yielders.filter(n => n !== "你");
+    const yielderDesc = othersWhoYielded.length > 0
+      ? `你和 ${othersWhoYielded.join("、")} 决定让 ${winnerName} 先说`
+      : `你决定让 ${winnerName} 先说`;
+    blocks.push(
+      `[${fmtTime(timestamp)}] 你和 ${allOthers.join("、")} 同时开口了，你想说的是「${myUtterance.text}」，${yielderDesc}`,
+    );
+  } else {
+    // I was a bystander
+    blocks.push(
+      `[${fmtTime(timestamp)}] ${winnerName} 和 ${yielderNames} 同时开口了，${yielderNames} 让 ${winnerName} 先说`,
+    );
+  }
 }

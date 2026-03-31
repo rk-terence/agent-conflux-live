@@ -67,59 +67,88 @@ describe("normalizeOutput", () => {
 
     it("trims speech text", () => {
       const result = normalizeOutput(
-        makeOutput({ text: "  你好  " }),
+        makeOutput({ text: "  你好世界测试  " }),
         "reaction",
       );
-      expect(result.output).toMatchObject({ type: "speech", text: "你好" });
+      expect(result.output).toMatchObject({ type: "speech", text: "你好世界测试" });
     });
   });
 
-  describe("continuation mode", () => {
-    it("classifies empty text as end_of_turn", () => {
+  describe("speaker prefix stripping", () => {
+    it("strips [你]: prefix from speech", () => {
       const result = normalizeOutput(
-        makeOutput({ text: "" }),
-        "continuation",
-      );
-      expect(result.output.type).toBe("end_of_turn");
-    });
-
-    it("classifies whitespace-only text as end_of_turn", () => {
-      const result = normalizeOutput(
-        makeOutput({ text: "   " }),
-        "continuation",
-      );
-      expect(result.output.type).toBe("end_of_turn");
-    });
-
-    it("classifies lone stop sequence as end_of_turn", () => {
-      for (const stop of ["。", "！", "？"]) {
-        const result = normalizeOutput(
-          makeOutput({ text: stop }),
-          "continuation",
-        );
-        expect(result.output.type).toBe("end_of_turn");
-      }
-    });
-
-    it("classifies non-empty text as speech", () => {
-      const result = normalizeOutput(
-        makeOutput({ text: "这是下一句话" }),
-        "continuation",
+        makeOutput({ text: "[你]: 没关系，我同意。" }),
+        "reaction",
       );
       expect(result.output).toMatchObject({
         type: "speech",
-        text: "这是下一句话",
+        text: "没关系，我同意。",
       });
     });
 
-    it("classifies [silence] as end_of_turn in continuation mode", () => {
+    it("strips [你]：prefix with full-width colon", () => {
       const result = normalizeOutput(
-        makeOutput({ text: "[silence]" }),
-        "continuation",
+        makeOutput({ text: "[你]：看来大家都很感兴趣。" }),
+        "reaction",
       );
-      // Model echoed the system prompt's silence instruction instead of
-      // continuing speech — treat as end of turn, not transcript content.
-      expect(result.output.type).toBe("end_of_turn");
+      expect(result.output).toMatchObject({
+        type: "speech",
+        text: "看来大家都很感兴趣。",
+      });
+    });
+
+    it("strips [AgentName]: prefix", () => {
+      const result = normalizeOutput(
+        makeOutput({ text: "[Gemini]: 我同意这个观点。" }),
+        "reaction",
+      );
+      expect(result.output).toMatchObject({
+        type: "speech",
+        text: "我同意这个观点。",
+      });
+    });
+  });
+
+  describe("parenthetical stripping", () => {
+    it("strips full-width parentheticals from speech", () => {
+      const result = normalizeOutput(
+        makeOutput({ text: "（等了一秒，确认安静后）我们来讨论一下。" }),
+        "reaction",
+      );
+      expect(result.output).toMatchObject({
+        type: "speech",
+        text: "我们来讨论一下。",
+      });
+    });
+
+    it("strips half-width parentheticals from speech", () => {
+      const result = normalizeOutput(
+        makeOutput({ text: "(turns to Qwen) 你觉得呢？这很重要。" }),
+        "reaction",
+      );
+      expect(result.output).toMatchObject({
+        type: "speech",
+        text: "你觉得呢？这很重要。",
+      });
+    });
+
+    it("treats pure parenthetical as silence in reaction mode", () => {
+      const result = normalizeOutput(
+        makeOutput({ text: "（安静地等待片刻，确认当前没有其他人正在说话）" }),
+        "reaction",
+      );
+      expect(result.output.type).toBe("silence");
+    });
+
+    it("strips multiple parentheticals", () => {
+      const result = normalizeOutput(
+        makeOutput({ text: "（停顿片刻）我同意（点头）这个观点。" }),
+        "reaction",
+      );
+      expect(result.output).toMatchObject({
+        type: "speech",
+        text: "我同意这个观点。",
+      });
     });
   });
 
@@ -138,7 +167,7 @@ describe("normalizeOutput", () => {
     it("classifies cancelled finishReason as error", () => {
       const result = normalizeOutput(
         makeOutput({ finishReason: "cancelled" }),
-        "continuation",
+        "reaction",
       );
       expect(result.output).toMatchObject({
         type: "error",
@@ -146,27 +175,21 @@ describe("normalizeOutput", () => {
       });
     });
 
-    it("classifies max_tokens as error (truncated output)", () => {
+    it("treats max_tokens as speech (uses whatever text we got)", () => {
       const result = normalizeOutput(
-        makeOutput({ text: "说到一半没说完", finishReason: "max_tokens" }),
+        makeOutput({ text: "说到一半没说完但也算数", finishReason: "max_tokens" }),
         "reaction",
       );
-      expect(result.output.type).toBe("error");
-      expect((result.output as any).message).toContain("truncated");
-    });
-
-    it("classifies max_tokens as error in continuation mode too", () => {
-      const result = normalizeOutput(
-        makeOutput({ text: "半句话", finishReason: "max_tokens" }),
-        "continuation",
-      );
-      expect(result.output.type).toBe("error");
+      expect(result.output).toMatchObject({
+        type: "speech",
+        text: "说到一半没说完但也算数",
+      });
     });
   });
 
   describe("raw output preservation", () => {
     it("preserves raw model output for debug", () => {
-      const raw = makeOutput({ text: "测试", rawResponse: { id: "resp_123" } });
+      const raw = makeOutput({ text: "测试文本内容", rawResponse: { id: "resp_123" } });
       const result = normalizeOutput(raw, "reaction");
       expect(result.raw).toBe(raw);
     });

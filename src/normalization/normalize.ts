@@ -16,7 +16,7 @@ export type NormalizedResult = {
 
 export function normalizeOutput(
   callOutput: ModelCallOutput,
-  mode: CallMode,
+  _mode: CallMode,
 ): NormalizedResult {
   const { agentId, text, finishReason } = callOutput;
 
@@ -33,45 +33,10 @@ export function normalizeOutput(
     };
   }
 
-  // max_tokens means the output was truncated — violates sentence atomicity
-  if (finishReason === "max_tokens") {
-    return {
-      agentId,
-      output: {
-        type: "error",
-        message: `Output truncated by max_tokens limit (partial text: "${text.slice(0, 50)}")`,
-      },
-      raw: callOutput,
-    };
-  }
-
+  // max_tokens truncation — still treat as speech with whatever we got,
+  // since models now produce full responses without sentence boundaries
   const trimmed = text.trim();
 
-  // Continuation mode
-  if (mode === "continuation") {
-    if (trimmed === "" || isOnlyStopSequence(trimmed)) {
-      return { agentId, output: { type: "end_of_turn" }, raw: callOutput };
-    }
-
-    // [silence] in continuation mode is a protocol anomaly — the model
-    // echoed the system prompt's silence instruction instead of continuing.
-    // Treat as end of turn rather than polluting the transcript.
-    if (isSilence(trimmed)) {
-      return { agentId, output: { type: "end_of_turn" }, raw: callOutput };
-    }
-
-    return {
-      agentId,
-      output: {
-        type: "speech",
-        text: trimmed,
-        tokenCount: estimateTokenCount(trimmed),
-      },
-      raw: callOutput,
-    };
-  }
-
-  // Reaction mode: check for [silence]
   if (isSilence(trimmed)) {
     return { agentId, output: { type: "silence" }, raw: callOutput };
   }
@@ -80,12 +45,18 @@ export function normalizeOutput(
     return { agentId, output: { type: "silence" }, raw: callOutput };
   }
 
+  // Clean: strip fabricated history, speaker prefixes, parenthetical actions
+  const cleaned = cleanSpeechText(trimmed);
+  if (cleaned === "" || isSilence(cleaned)) {
+    return { agentId, output: { type: "silence" }, raw: callOutput };
+  }
+
   return {
     agentId,
     output: {
       type: "speech",
-      text: trimmed,
-      tokenCount: estimateTokenCount(trimmed),
+      text: cleaned,
+      tokenCount: estimateTokenCount(cleaned),
     },
     raw: callOutput,
   };
@@ -96,8 +67,67 @@ function isSilence(text: string): boolean {
   return normalized === "[silence]" || normalized === "[沉默]";
 }
 
-function isOnlyStopSequence(text: string): boolean {
-  return ["。", "！", "？"].includes(text);
+/** Minimum character count for a valid speech utterance.
+ *  Fragments like "嗯，" or just a name are not meaningful contributions. */
+const MIN_SPEECH_LENGTH = 4;
+
+/**
+ * Apply all speech cleaning steps in order.
+ * If the output looks like fabricated history rather than actual speech,
+ * return empty string so it gets classified as silence.
+ */
+function cleanSpeechText(text: string): string {
+  // Detect history hallucination: model outputs text that mimics the
+  // timestamped history format, e.g. "[2.5s] Gemini 说：「...」"
+  if (/^\[\d+\.\d+s\]/.test(text)) return "";
+
+  let cleaned = stripParentheticals(stripSpeakerPrefix(text));
+
+  // Discard fragments that are too short to be meaningful speech
+  if (cleaned.length < MIN_SPEECH_LENGTH) return "";
+
+  return cleaned;
+}
+
+/**
+ * Strip speaker prefixes that models sometimes echo from history projection.
+ *
+ * Models (notably Gemini) see history formatted as "[你]: 之前说的话" and
+ * mimic this format in their output, e.g. "[你]: 没关系。"
+ * The prefix is not actual speech — strip it so only the spoken words remain.
+ * Matches patterns like "[你]: ", "[Gemini]: ", "[DeepSeek]:", etc.
+ */
+function stripSpeakerPrefix(text: string): string {
+  return text.replace(/^\[[\w\u4e00-\u9fff]+\][：:]\s*/u, "").trim();
+}
+
+/**
+ * Strip parenthetical stage directions / action descriptions from model output.
+ *
+ * Why this exists:
+ * Some models (notably DeepSeek) respond with bracketed "actions" like
+ * "（等了一秒，确认安静后）" or "（转向 Qwen）" in addition to actual speech.
+ * These violate the roundtable protocol in two ways:
+ *   1. The system explicitly tells models to output only spoken words, no
+ *      action descriptions or narration. Parentheticals bypass this instruction.
+ *   2. Actions like "等了3秒" imply temporal capabilities (waiting, pausing)
+ *      that don't exist in our system — virtual time is managed by the engine,
+ *      not by models. Letting these through would create false impressions
+ *      in other agents' history projections.
+ *
+ * By stripping at the normalization layer (before the reducer), we ensure:
+ *   - Domain events never contain non-speech content
+ *   - Other agents' projected history stays clean
+ *   - Pure-parenthetical outputs are correctly classified as silence
+ *     rather than generating empty speech events
+ *
+ * Matches both full-width （…） and half-width (…) parentheses.
+ */
+function stripParentheticals(text: string): string {
+  return text
+    .replace(/（[^）]*）/g, "")
+    .replace(/\([^)]*\)/g, "")
+    .trim();
 }
 
 /**
@@ -111,7 +141,6 @@ export function estimateTokenCount(text: string): number {
   for (const char of text) {
     const code = char.codePointAt(0)!;
     if (code > 0x2e80) {
-      // CJK character range (approximate)
       count += 1.5;
     } else if (/\w/.test(char)) {
       count += 0.25;

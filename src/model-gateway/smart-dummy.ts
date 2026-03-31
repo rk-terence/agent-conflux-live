@@ -99,14 +99,28 @@ const DEFAULT_CONTINUATIONS = [
   "希望大家也能分享自己的想法。",
 ];
 
+/**
+ * Personality profiles that influence speaking eagerness and negotiation style.
+ * This lets us test collision + negotiation behavior with the dummy gateway.
+ */
+type Personality = {
+  /** Base probability of speaking in reaction mode */
+  readonly speakChance: number;
+  /** Probability of insisting (vs yielding) during negotiation */
+  readonly insistChance: number;
+};
+
+const PERSONALITIES: Record<string, Personality> = {
+  deepseek: { speakChance: 0.5, insistChance: 0.3 },  // moderate speaker, tends to yield
+  gemini:   { speakChance: 0.7, insistChance: 0.7 },   // eager speaker, assertive
+  qwen:     { speakChance: 0.6, insistChance: 0.5 },   // fairly active, balanced
+};
+
+const DEFAULT_PERSONALITY: Personality = { speakChance: 0.4, insistChance: 0.4 };
+
 export class SmartDummyGateway implements ModelGateway {
-  private speakChance: number;
   private maxContinuations: Map<string, number> = new Map();
   private continuationCount: Map<string, number> = new Map();
-
-  constructor(speakChance = 0.3) {
-    this.speakChance = speakChance;
-  }
 
   async generate(input: ModelCallInput): Promise<ModelCallOutput> {
     // Small delay to simulate network
@@ -114,6 +128,11 @@ export class SmartDummyGateway implements ModelGateway {
 
     if (input.abortSignal?.aborted) {
       return { agentId: input.agentId, text: "", finishReason: "cancelled" };
+    }
+
+    // Detect negotiation prompts (system prompt contains "坚持发言" or "让步")
+    if (input.systemPrompt.includes("坚持发言，还是让别人先说")) {
+      return this.handleNegotiation(input);
     }
 
     if (input.mode === "continuation") {
@@ -124,7 +143,8 @@ export class SmartDummyGateway implements ModelGateway {
   }
 
   private handleReaction(input: ModelCallInput): ModelCallOutput {
-    const shouldSpeak = Math.random() < this.speakChance;
+    const personality = PERSONALITIES[input.agentId] ?? DEFAULT_PERSONALITY;
+    const shouldSpeak = Math.random() < personality.speakChance;
 
     if (!shouldSpeak) {
       return {
@@ -135,7 +155,7 @@ export class SmartDummyGateway implements ModelGateway {
     }
 
     // Start a new turn — set how many continuations this speaker will do
-    const maxCont = Math.floor(Math.random() * 3); // 0-2 continuations after first sentence
+    const maxCont = Math.floor(Math.random() * 3);
     this.maxContinuations.set(input.agentId, maxCont);
     this.continuationCount.set(input.agentId, 0);
 
@@ -154,7 +174,6 @@ export class SmartDummyGateway implements ModelGateway {
     const max = this.maxContinuations.get(input.agentId) ?? 0;
 
     if (count >= max) {
-      // End turn
       return {
         agentId: input.agentId,
         text: "",
@@ -171,6 +190,27 @@ export class SmartDummyGateway implements ModelGateway {
       agentId: input.agentId,
       text,
       finishReason: "stop_sequence",
+    };
+  }
+
+  private handleNegotiation(input: ModelCallInput): ModelCallOutput {
+    const personality = PERSONALITIES[input.agentId] ?? DEFAULT_PERSONALITY;
+
+    // Later negotiation rounds: increase yield probability (social pressure)
+    let insistChance = personality.insistChance;
+    const roundMatch = input.historyText.match(/已经僵持了 (\d+) 轮/);
+    if (roundMatch) {
+      const stalledRounds = parseInt(roundMatch[1], 10);
+      // Each stalled round reduces insist chance by 20%
+      insistChance = Math.max(0.1, insistChance - stalledRounds * 0.2);
+    }
+
+    const decision = Math.random() < insistChance ? "坚持" : "让步";
+
+    return {
+      agentId: input.agentId,
+      text: decision,
+      finishReason: "completed",
     };
   }
 }
