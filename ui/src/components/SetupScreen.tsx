@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { SetupConfig } from '../App'
 
 const MODELS = [
   { id: 'claude', name: 'Claude Sonnet 4', provider: 'Anthropic', color: 'bg-orange-500' },
@@ -18,7 +19,7 @@ const PRESET_TOPICS = [
 ]
 
 type Props = {
-  onStart: () => void
+  onStart: (config: SetupConfig) => void
 }
 
 export function SetupScreen({ onStart }: Props) {
@@ -77,25 +78,16 @@ export function SetupScreen({ onStart }: Props) {
         </div>
       </section>
 
-      {/* API Keys (placeholder) */}
+      {/* Demo mode notice */}
       <section className="mb-10">
-        <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">
-          API Keys
-        </h2>
-        <div className="space-y-3">
-          {MODELS.filter(m => selected.has(m.id)).map(m => (
-            <div key={m.id} className="flex items-center gap-3">
-              <span className={`w-2 h-2 rounded-full ${m.color} shrink-0`} />
-              <span className="text-sm text-gray-400 w-20 shrink-0">{m.provider}</span>
-              <input
-                type="password"
-                placeholder={`${m.provider} API Key`}
-                className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300 placeholder-gray-600 focus:outline-none focus:border-gray-500"
-              />
-            </div>
-          ))}
+        <div className="rounded-xl border border-yellow-900/50 bg-yellow-950/20 px-4 py-3">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-yellow-500 text-sm font-medium">Demo 模式</span>
+          </div>
+          <p className="text-xs text-gray-400">
+            当前使用模拟数据运行，无需 API Key。接入真实 Provider 后将在此处配置密钥。
+          </p>
         </div>
-        <p className="text-xs text-gray-600 mt-2">Keys 仅存储在浏览器内存中</p>
       </section>
 
       {/* Topic */}
@@ -163,7 +155,17 @@ export function SetupScreen({ onStart }: Props) {
 
       {/* Start button */}
       <button
-        onClick={onStart}
+        onClick={() => {
+          const selectedModels = MODELS.filter(m => selected.has(m.id))
+          onStart({
+            topic: useCustom ? customTopic.trim() : topic,
+            participants: selectedModels.map(m => ({
+              agentId: m.id,
+              name: m.name.split(' ')[0],
+            })),
+            durationSeconds: duration,
+          })
+        }}
         disabled={!canStart}
         className={`w-full py-3 rounded-xl font-semibold text-lg transition-all ${
           canStart

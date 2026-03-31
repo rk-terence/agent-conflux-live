@@ -36,6 +36,15 @@ export type EngineAgentError = {
 
 export type EngineIterationResult = EngineIterationSuccess | EngineIterationFailure;
 
+export class EngineFatalError extends Error {
+  readonly debug: IterationDebugInfo | null;
+  constructor(message: string, debug: IterationDebugInfo | null) {
+    super(message);
+    this.name = "EngineFatalError";
+    this.debug = debug;
+  }
+}
+
 // --- Engine ---
 
 export async function runIteration(
@@ -44,7 +53,7 @@ export async function runIteration(
   abortSignal?: AbortSignal,
 ): Promise<EngineIterationResult> {
   if (state.phase === "ended" || state.phase === "idle") {
-    throw new Error(`Cannot run iteration in phase "${state.phase}".`);
+    throw new EngineFatalError(`Cannot run iteration in phase "${state.phase}".`, null);
   }
 
   const startMs = Date.now();
@@ -108,7 +117,18 @@ export async function runIteration(
     results: agentResults,
   };
 
-  const { nextState, events } = reduceIteration(state, iterationResult);
+  let nextState: SessionState;
+  let events: readonly DomainEvent[];
+  try {
+    const reduced = reduceIteration(state, iterationResult);
+    nextState = reduced.nextState;
+    events = reduced.events;
+  } catch (err: unknown) {
+    throw new EngineFatalError(
+      `Reducer error: ${err instanceof Error ? err.message : String(err)}`,
+      buildDebug(),
+    );
+  }
 
   return {
     ok: true,

@@ -3,6 +3,7 @@ import type {
   Participant,
   SessionState,
   DiscussionStartedEvent,
+  DiscussionEndedEvent,
   ReducerOutput,
 } from "./types.js";
 
@@ -31,4 +32,29 @@ export function createSession(params: {
   };
 
   return { nextState: initialState, events: [startEvent] };
+}
+
+export function endDiscussion(
+  state: SessionState,
+  reason: DiscussionEndedEvent["reason"],
+): ReducerOutput {
+  if (state.phase === "ended") {
+    return { nextState: state, events: [] };
+  }
+
+  const endEvent: DiscussionEndedEvent = {
+    kind: "discussion_ended",
+    timestamp: state.virtualTime,
+    reason,
+  };
+
+  return {
+    nextState: {
+      ...state,
+      phase: "ended",
+      currentTurn: null,
+      events: [...state.events, endEvent],
+    },
+    events: [endEvent],
+  };
 }

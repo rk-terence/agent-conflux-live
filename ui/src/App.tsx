@@ -1,18 +1,40 @@
 import { useState } from 'react'
 import { SetupScreen } from './components/SetupScreen'
 import { DiscussionScreen } from './components/DiscussionScreen'
+import { useDiscussion } from './hooks/useDiscussion'
+import type { Participant } from '@core/domain/types.ts'
 
 export type Screen = 'setup' | 'discussion'
 
+export type SetupConfig = {
+  topic: string
+  participants: Participant[]
+  durationSeconds: number
+}
+
 export default function App() {
   const [screen, setScreen] = useState<Screen>('setup')
+  const discussion = useDiscussion()
+
+  const handleStart = (config: SetupConfig) => {
+    discussion.start(config)
+    setScreen('discussion')
+  }
+
+  const handleBack = () => {
+    discussion.stop()
+    setScreen('setup')
+  }
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
       {screen === 'setup' ? (
-        <SetupScreen onStart={() => setScreen('discussion')} />
+        <SetupScreen onStart={handleStart} />
       ) : (
-        <DiscussionScreen onBack={() => setScreen('setup')} />
+        <DiscussionScreen
+          discussion={discussion}
+          onBack={handleBack}
+        />
       )}
     </div>
   )

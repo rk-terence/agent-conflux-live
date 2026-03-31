@@ -109,7 +109,7 @@ export type SilenceExtendedEvent = {
 export type DiscussionEndedEvent = {
   readonly kind: "discussion_ended";
   readonly timestamp: number;
-  readonly reason: "silence_timeout" | "manual";
+  readonly reason: "silence_timeout" | "duration_limit" | "manual" | "fatal_error";
 };
 
 // --- Reducer input types (no transport-layer errors) ---

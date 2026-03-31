@@ -1,5 +1,11 @@
-import { PARTICIPANTS, MOCK_EVENTS, getParticipant, COLOR_HEX } from './DiscussionScreen'
-import type { MockEvent } from './DiscussionScreen'
+import { getParticipantDisplay, formatTime, COLOR_HEX } from './DiscussionScreen'
+import type { ParticipantDisplay } from './DiscussionScreen'
+import type { DomainEvent } from '@core/domain/types.ts'
+
+type Props = {
+  participants: ParticipantDisplay[]
+  events: DomainEvent[]
+}
 
 function getSeatPosition(index: number, total: number, radius: number) {
   const angle = (index / total) * 2 * Math.PI - Math.PI / 2
@@ -9,30 +15,20 @@ function getSeatPosition(index: number, total: number, radius: number) {
   }
 }
 
-// Place bubble at a fixed pixel offset inward from the avatar toward center
 function getBubbleStyle(index: number, total: number, seatRadius: number) {
   const angle = (index / total) * 2 * Math.PI - Math.PI / 2
   const cos = Math.cos(angle)
   const sin = Math.sin(angle)
-
-  // Avatar position
   const ax = cos * seatRadius
   const ay = sin * seatRadius
-
-  // Move 90px toward center from avatar
   const offset = 90
   const bx = ax - cos * offset
   const by = ay - sin * offset
-
-  // Anchor: the edge of the bubble closest to the avatar
-  // maps angle to a translate that keeps the bubble "attached"
   const anchorX = `${-50 + cos * -40}%`
   const anchorY = `${-50 + sin * -40}%`
-
   return { x: bx, y: by, anchorX, anchorY }
 }
 
-// Split long text into subtitle-like lines (~20 chars each)
 function splitSubtitles(text: string, maxChars = 20): string[] {
   const lines: string[] = []
   let remaining = text
@@ -41,7 +37,6 @@ function splitSubtitles(text: string, maxChars = 20): string[] {
       lines.push(remaining)
       break
     }
-    // Find a good break point (punctuation or space)
     let breakAt = -1
     for (let i = maxChars; i >= maxChars - 6 && i > 0; i--) {
       if ('，。！？、；：  '.includes(remaining[i])) {
@@ -53,28 +48,36 @@ function splitSubtitles(text: string, maxChars = 20): string[] {
     lines.push(remaining.slice(0, breakAt))
     remaining = remaining.slice(breakAt)
   }
-  // Show only last 2 lines (like subtitles scrolling)
   return lines.slice(-2)
 }
 
-function getCurrentBubbles(): { speakerId: string; text: string }[] {
-  const speakers = PARTICIPANTS.filter(p => p.state === 'speaking')
-  return speakers.map(speaker => {
-    for (let i = MOCK_EVENTS.length - 1; i >= 0; i--) {
-      const e = MOCK_EVENTS[i]
-      if (e.type === 'speech' && e.speakerId === speaker.id) {
-        return { speakerId: speaker.id, text: e.text }
-      }
+// Get the latest speech text for each currently speaking participant
+function getSpeakerBubbles(
+  participants: ParticipantDisplay[],
+  events: DomainEvent[],
+): Map<string, string> {
+  const speakers = new Set(participants.filter(p => p.state === 'speaking').map(p => p.id))
+  const bubbles = new Map<string, string>()
+
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i]
+    if (e.kind === 'sentence_committed' && speakers.has(e.speakerId) && !bubbles.has(e.speakerId)) {
+      bubbles.set(e.speakerId, e.sentence)
     }
-    return { speakerId: speaker.id, text: '...' }
-  })
+    if (bubbles.size === speakers.size) break
+  }
+
+  // For speakers without any sentence yet, show "..."
+  for (const id of speakers) {
+    if (!bubbles.has(id)) bubbles.set(id, '...')
+  }
+
+  return bubbles
 }
 
-export function RoundtableView() {
-  // Fill the viewport — use vh to scale with window
+export function RoundtableView({ participants, events }: Props) {
   const radius = Math.min(typeof window !== 'undefined' ? window.innerHeight * 0.38 : 380, 420)
-  const bubbles = getCurrentBubbles()
-  const bubbleMap = new Map(bubbles.map(b => [b.speakerId, b]))
+  const bubbles = getSpeakerBubbles(participants, events)
 
   return (
     <div className="h-full flex items-center justify-center relative overflow-hidden">
@@ -91,15 +94,14 @@ export function RoundtableView() {
           }}
         />
 
-
         {/* Subtitle bubbles */}
-        {PARTICIPANTS.map((p, i) => {
-          const bubble = bubbleMap.get(p.id)
-          if (!bubble) return null
+        {participants.map((p, i) => {
+          const bubbleText = bubbles.get(p.id)
+          if (!bubbleText) return null
 
-          const pos = getBubbleStyle(i, PARTICIPANTS.length, radius)
+          const pos = getBubbleStyle(i, participants.length, radius)
           const hex = COLOR_HEX[p.color] ?? '#9ca3af'
-          const lines = splitSubtitles(bubble.text)
+          const lines = splitSubtitles(bubbleText)
 
           return (
             <div
@@ -132,8 +134,8 @@ export function RoundtableView() {
         })}
 
         {/* Seats */}
-        {PARTICIPANTS.map((p, i) => {
-          const pos = getSeatPosition(i, PARTICIPANTS.length, radius)
+        {participants.map((p, i) => {
+          const pos = getSeatPosition(i, participants.length, radius)
           const isSpeaking = p.state === 'speaking'
           const hex = COLOR_HEX[p.color] ?? '#9ca3af'
 
@@ -178,52 +180,56 @@ export function RoundtableView() {
         })}
       </div>
 
-      {/* Recent events — bottom right corner */}
+      {/* Recent events — bottom right */}
       <div className="absolute bottom-4 right-4 w-72">
-        <RecentEvents />
+        <RecentEvents events={events} participants={participants} />
       </div>
     </div>
   )
 }
 
-function RecentEvents() {
-  const recent = MOCK_EVENTS.slice(-3)
+function RecentEvents({ events, participants }: { events: DomainEvent[]; participants: ParticipantDisplay[] }) {
+  const recent = events.filter(e => e.kind !== 'discussion_started').slice(-4)
+  if (recent.length === 0) return null
 
   return (
     <div className="space-y-1.5 bg-gray-900/80 backdrop-blur-sm rounded-lg border border-gray-800/50 p-2.5">
       <span className="text-[10px] text-gray-600 uppercase tracking-wider font-semibold">最近</span>
       {recent.map((event, i) => (
-        <RecentEventItem key={i} event={event} />
+        <RecentEventItem key={i} event={event} participants={participants} />
       ))}
     </div>
   )
 }
 
-function RecentEventItem({ event }: { event: MockEvent }) {
-  switch (event.type) {
-    case 'speech': {
-      const p = getParticipant(event.speakerId)
+function RecentEventItem({ event, participants }: { event: DomainEvent; participants: ParticipantDisplay[] }) {
+  switch (event.kind) {
+    case 'sentence_committed': {
+      const p = getParticipantDisplay(event.speakerId, participants)
       const hex = COLOR_HEX[p.color] ?? '#9ca3af'
       return (
         <div className="flex items-center gap-1.5 truncate">
           <span className={`w-3 h-3 rounded-full ${p.color} shrink-0`} />
           <span className="text-[11px] font-medium shrink-0" style={{ color: hex }}>{p.name}</span>
           <span className="text-[11px] text-gray-500 truncate">
-            {event.text.length > 30 ? event.text.slice(0, 30) + '...' : event.text}
+            {event.sentence.length > 30 ? event.sentence.slice(0, 30) + '...' : event.sentence}
           </span>
         </div>
       )
     }
-    case 'collision_gap': {
-      const names = event.utterances.map(u => getParticipant(u.speakerId).name).join('、')
+    case 'collision': {
+      const names = event.utterances.map(u => getParticipantDisplay(u.agentId, participants).name).join('、')
       return <div className="text-[11px] text-yellow-600">⚡ {names} 同时说</div>
     }
-    case 'collision_speech': {
-      const s = getParticipant(event.speakerId)
-      const i = getParticipant(event.interrupterId)
-      return <div className="text-[11px] text-red-500">⚡ {s.name} 说话时 {i.name} 插入</div>
+    case 'silence_extended':
+      return <div className="text-[11px] text-gray-600">安静了 {Math.round(event.cumulativeSeconds)} 秒</div>
+    case 'turn_ended': {
+      const p = getParticipantDisplay(event.speakerId, participants)
+      return <div className="text-[11px] text-gray-600">{p.name} 说完了</div>
     }
-    case 'silence':
-      return <div className="text-[11px] text-gray-600">安静了 {event.seconds} 秒</div>
+    case 'discussion_ended':
+      return <div className="text-[11px] text-red-500">讨论结束</div>
+    default:
+      return null
   }
 }

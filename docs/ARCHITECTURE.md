@@ -38,7 +38,13 @@ Only the minimum necessary technology decisions are fixed at this stage.
 - Backend requirement: no backend is required by the current architecture
 - Model integration boundary: all model calls must go through the `ModelGateway` interface
 
-This document does not mandate a specific build tool, test runner, formatter, linter, or UI framework.
+The following choices have been made during implementation:
+
+- Package manager: pnpm
+- Test runner: vitest
+- UI framework: React (via Vite + @vitejs/plugin-react)
+- Build tool: Vite
+- CSS: Tailwind CSS v4
 
 ## Design Principles
 
@@ -156,7 +162,10 @@ Must not:
 - render history
 - know how to update discussion state
 
-At this stage, a dummy implementation is sufficient.
+Two dummy implementations exist:
+
+- `DummyGateway`: fully controllable via a response function, used in unit tests.
+- `SmartDummyGateway`: simulates realistic discussion behavior (random speech/silence, multi-sentence turns), used for end-to-end UI testing without real API keys.
 
 ### 6. Normalization
 
@@ -179,6 +188,33 @@ Must not:
 - advance time
 - decide collision or turn ownership
 
+### 7. Runner
+
+The `runner` module drives the discussion loop.
+
+Responsibilities:
+
+- call `createSession()` to initialize state
+- repeatedly call `runIteration()` until `phase === "ended"` or manually stopped
+- expose pause/resume/stop controls
+- deliver state changes, events, and debug info to the UI via callbacks
+
+Must not:
+
+- contain business rules
+- mutate state outside of the engine/reducer path
+
+### 8. UI Layer
+
+The UI is a React application (in `ui/`) that consumes the core modules via a `useDiscussion` hook.
+
+Key design choices:
+
+- Two view modes: **Roundtable** (circular table with avatars and subtitle-style speech bubbles) and **List** (chronological timeline with collision/silence annotations).
+- Participant state is derived from `SessionState`: speaking (has current turn), listening (someone else has current turn), silent (no current turn / turn gap).
+- Debug panel shows per-iteration raw responses, call modes, and timing.
+- The core modules (`src/`) are framework-agnostic. The UI imports them via a Vite alias (`@core/`).
+
 ## Dependency Rules
 
 Dependencies must flow in one direction:
@@ -191,14 +227,22 @@ engine -> history
 engine -> prompting
 engine -> model-gateway
 engine -> normalization
+runner -> engine
+runner -> domain
+runner -> model-gateway
+ui -> runner
+ui -> domain (types only)
+ui -> engine (types only)
 ```
 
 Interpretation:
 
 - `domain` is the core and should remain the most stable module.
 - `engine` may depend on all runtime-facing modules because it is the orchestrator.
+- `runner` depends on `engine` and `domain` to drive the loop. It also depends on `model-gateway` to accept a gateway instance.
 - `prompting` depends on `history`: it receives projected transcript text from the history module and assembles it into gateway-ready call inputs. This is the intended data flow: `history` renders perspective-specific text, `prompting` wraps it into message structures.
 - `history`, `normalization`, and `model-gateway` must not depend on each other unless explicitly required by their contracts.
+- `ui` depends on `runner` for discussion control and on `domain`/`engine` for type imports only. It must not import `history`, `prompting`, or `normalization` directly.
 
 ## Core Data Model
 
@@ -346,15 +390,23 @@ This contract is intentionally narrow. It exists so the engine can be developed 
 
 ## Failure Handling
 
-Detailed provider policy is deferred, but the architecture must reserve a clear boundary for failures.
+Error boundaries are enforced at the type level:
 
-For now:
+- **Domain layer**: `AgentOutput` only allows `speech | silence | end_of_turn`. There is no `error` variant. The reducer throws if it receives unexpected input (e.g., `silence` in continuation mode).
+- **Normalization layer**: `NormalizedOutput = AgentOutput | NormalizedError`. Errors from the gateway (rejection, `finishReason: "error"`, `finishReason: "max_tokens"`) are classified as `NormalizedError`.
+- **Engine layer**: catches all gateway `Promise` rejections (converting them to structured `ModelCallOutput` with `finishReason: "error"`), then normalizes all results. If any `NormalizedError` exists, the engine returns `{ ok: false, errors, debug }` instead of calling the reducer. Reducer throws are caught and re-thrown as `EngineFatalError` with full debug context. The `debug` object is always populated, even on failure.
+- **Runner layer**: receives `ok: false` results via `onError` callback (current policy: retry after delay). Uncaught exceptions (e.g., `EngineFatalError`) are caught by try/catch, surfaced via `onError({ type: "fatal", debug })`, and the discussion is terminated through the domain layer.
 
-- gateway failures must surface as structured iteration results, not uncaught mutations
-- the engine may decide retry or abort policy later
-- the domain reducer must not interpret transport-layer errors
+The domain reducer must not interpret transport-layer errors. The engine is the boundary where errors are consumed.
 
-Until a concrete failure policy is written, error handling should favor explicit failure over silent fallback.
+### Discussion Termination Reasons
+
+All termination paths go through `endDiscussion()` to produce canonical `SessionState` (phase = "ended") and a `discussion_ended` event. Four reasons exist:
+
+- `silence_timeout` — cumulative silence exceeded 60s (produced by reducer)
+- `duration_limit` — virtual time exceeded the configured limit (produced by runner)
+- `manual` — user clicked stop (produced by runner)
+- `fatal_error` — unrecoverable engine/reducer error (produced by runner)
 
 ## Testing Strategy
 
@@ -396,25 +448,58 @@ When real providers are added later, they should be tested against the `ModelGat
 
 ## Out of Scope for This Version
 
-The following are explicitly not defined here yet:
+The following are not yet implemented:
 
-- concrete provider adapter shapes
-- API key storage details beyond current PRD assumptions
+- concrete provider adapters (Anthropic, OpenAI, Google, DeepSeek, Qwen, Groq)
+- API key storage and management (UI has input fields but they are not wired)
+- virtual duration limit enforcement (setup slider exists but is not connected to engine)
 - persistence or session replay storage format
-- analytics pipeline
-- export pipeline
-- UI state management
+- analytics pipeline (post-discussion statistics)
+- export pipeline (shareable images/video)
 
 These can be added later, but they must not violate the module boundaries defined above.
 
-## Implementation Guidance
+## Implementation Status
 
-For the first implementation pass:
+The core engine is fully implemented and tested (82 tests). The UI wireframe is functional with a `SmartDummyGateway` that simulates realistic discussion behavior.
 
-- keep the core runtime in TypeScript
-- keep `domain` fully framework-agnostic
-- start with a dummy `ModelGateway`
-- make `engine` depend on pure modules and one side-effect boundary
-- treat event log plus session state as the only canonical truth
+### Project Structure
+
+```
+src/                          # Framework-agnostic core (pnpm root)
+  domain/                     # State types, reducer, session init
+  engine/                     # Single-iteration orchestrator
+  history/                    # Perspective-specific transcript projection
+  prompting/                  # System prompt, call input builders
+  model-gateway/              # Gateway interface, dummy implementations
+  normalization/              # Raw output → AgentOutput classification
+  runner/                     # Discussion loop driver
+
+ui/                           # React application (separate pnpm project)
+  src/
+    hooks/useDiscussion.ts    # React hook bridging runner ↔ components
+    components/
+      SetupScreen.tsx         # Model selection, topic, duration
+      DiscussionScreen.tsx    # Top bar, view toggle, debug panel
+      RoundtableView.tsx      # Circular table with avatars + subtitle bubbles
+      ListView.tsx            # Chronological event timeline
+
+docs/
+  PRD.md                      # Product requirements
+  ARCHITECTURE.md             # This file
+```
+
+### Development Commands
+
+```bash
+# Core tests
+pnpm test              # run all 82 tests
+pnpm test:watch        # watch mode
+
+# UI development
+cd ui && pnpm dev      # start Vite dev server at localhost:5173
+```
+
+### Design Guidance
 
 If a proposed implementation makes it unclear which module owns a rule, the design is too entangled and should be simplified before coding.

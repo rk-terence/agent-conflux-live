@@ -1,4 +1,4 @@
-export { runIteration } from "./engine.js";
+export { runIteration, EngineFatalError } from "./engine.js";
 export type {
   EngineIterationResult,
   EngineIterationSuccess,
