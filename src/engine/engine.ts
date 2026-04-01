@@ -182,13 +182,16 @@ export async function runIteration(
       utterance: u.text,
     }));
 
-    // Build perspective-specific history for each candidate
+    // Build perspective-specific history for each candidate.
+    // Use state.events (BEFORE the reducer committed this collision) so that
+    // the projected history only contains prior events. The current collision
+    // is described in the negotiation turn directive — not in projected history.
     const perspectiveHistories = new Map<string, string>();
     for (const c of candidates) {
       perspectiveHistories.set(
         c.agentId,
         projectHistory({
-          events: nextState.events,
+          events: state.events,
           currentTurn: null,
           perspectiveAgentId: c.agentId,
           participants: state.participants,
@@ -256,7 +259,7 @@ function buildAgentCall(
   iterationId: number,
   abortSignal?: AbortSignal,
 ): ModelCallInput {
-  const historyText = projectHistory({
+  const projectedHistory = projectHistory({
     events: state.events,
     currentTurn: null,
     perspectiveAgentId: agentId,
@@ -272,7 +275,7 @@ function buildAgentCall(
     agentName,
     allNames,
     topic: state.topic,
-    historyText,
+    projectedHistory,
     collisionContext,
     abortSignal,
   });

@@ -87,7 +87,7 @@ src/                          # Framework-agnostic core engine
   engine/                     # Single-iteration orchestrator
   negotiation/                # Collision resolution: multi-round insist/yield
   history/                    # Perspective-specific transcript projection
-  prompting/                  # System prompt, call input builders
+  prompting/                  # Prompt templates, renderer, builders
   model-gateway/              # Gateway interface, Dummy + SmartDummy + ZenMux
   normalization/              # Raw output cleaning and classification
   runner/                     # Discussion loop driver
@@ -98,7 +98,7 @@ ui/                           # React application (experimental, known issues pe
 
 ## Current Status
 
-Core engine complete with 66 passing tests. Collision negotiation mechanism works effectively and discussions progress smoothly. The CLI tool provides full prompt/response logging for iterative optimization.
+Core engine complete with 95 passing tests. Collision negotiation mechanism works effectively and discussions progress smoothly. The CLI tool provides full prompt/response logging for iterative optimization.
 
 ## Docs
 

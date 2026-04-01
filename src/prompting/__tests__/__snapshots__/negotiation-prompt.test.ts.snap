@@ -1,0 +1,91 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildNegotiationInput > snapshot: first round with discussion history 1`] = `
+{
+  "abortSignal": undefined,
+  "agentId": "claude",
+  "iterationId": 3,
+  "maxTokens": 20,
+  "mode": "negotiation",
+  "sessionId": "s1",
+  "systemPrompt": "你是 Claude，正在参与一个关于「AI意识问题」的圆桌讨论。
+刚才你和其他人同时开口了，声音重叠，没有人听清。
+现在需要协商谁先发言。请根据讨论的上下文和你的判断决定：坚持发言，还是让别人先说。
+只回复「坚持」或「让步」，不要输出其他内容。",
+  "userPromptText": "- [0.5s] **DeepSeek**：
+  > 大家好。
+- [1.0s] **你**：
+  > 你好。
+- [1.5s] **GPT-4o**：
+  > 开始吧。
+
+你和 GPT-4o 同时开口了。你想说的是「我觉得AI是有意识的」，但没有人听清。
+
+你要坚持发言，还是让步？",
+}
+`;
+
+exports[`buildNegotiationInput > snapshot: first round, no prior history 1`] = `
+{
+  "abortSignal": undefined,
+  "agentId": "claude",
+  "iterationId": 2,
+  "maxTokens": 20,
+  "mode": "negotiation",
+  "sessionId": "s1",
+  "systemPrompt": "你是 Claude，正在参与一个关于「AI意识问题」的圆桌讨论。
+刚才你和其他人同时开口了，声音重叠，没有人听清。
+现在需要协商谁先发言。请根据讨论的上下文和你的判断决定：坚持发言，还是让别人先说。
+只回复「坚持」或「让步」，不要输出其他内容。",
+  "userPromptText": "你和 GPT-4o 同时开口了。你想说的是「我觉得AI是有意识的」，但没有人听清。
+
+你要坚持发言，还是让步？",
+}
+`;
+
+exports[`buildNegotiationInput > snapshot: round 2 with previous round results (deadlock) 1`] = `
+{
+  "abortSignal": undefined,
+  "agentId": "claude",
+  "iterationId": 4,
+  "maxTokens": 20,
+  "mode": "negotiation",
+  "sessionId": "s1",
+  "systemPrompt": "你是 Claude，正在参与一个关于「AI意识问题」的圆桌讨论。
+刚才你和其他人同时开口了，声音重叠，没有人听清。
+现在需要协商谁先发言。请根据讨论的上下文和你的判断决定：坚持发言，还是让别人先说。
+只回复「坚持」或「让步」，不要输出其他内容。",
+  "userPromptText": "- [1.0s] **DeepSeek**：
+  > 讨论中。
+
+你和 GPT-4o 同时开口了。你想说的是「我觉得AI是有意识的」，但没有人听清。
+第 1 轮协商：你坚持，GPT-4o坚持。
+目前还有你和 GPT-4o 都想说话，已经僵持了 1 轮。
+
+你要坚持发言，还是让步？",
+}
+`;
+
+exports[`buildNegotiationInput > snapshot: with @mention hint 1`] = `
+{
+  "abortSignal": undefined,
+  "agentId": "claude",
+  "iterationId": 5,
+  "maxTokens": 20,
+  "mode": "negotiation",
+  "sessionId": "s1",
+  "systemPrompt": "你是 Claude，正在参与一个关于「AI意识问题」的圆桌讨论。
+刚才你和其他人同时开口了，声音重叠，没有人听清。
+现在需要协商谁先发言。请根据讨论的上下文和你的判断决定：坚持发言，还是让别人先说。
+只回复「坚持」或「让步」，不要输出其他内容。",
+  "userPromptText": "- [1.0s] **你**：
+  > 我之前说过了。
+- [2.0s] **GPT-4o**：
+  > @Claude 你怎么看？
+
+你和 GPT-4o 同时开口了。你想说的是「我觉得AI是有意识的」，但没有人听清。
+注意：刚才有人在讨论中点名向你（@Claude）提问，你可能更有理由坚持发言来回应。
+
+你要坚持发言，还是让步？",
+}
+`;

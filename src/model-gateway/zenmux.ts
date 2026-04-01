@@ -234,7 +234,7 @@ export class ZenMuxGateway implements ModelGateway {
   private buildMessages(input: ModelCallInput): OaiMessage[] {
     const msgs: OaiMessage[] = [
       { role: "system", content: input.systemPrompt },
-      { role: "user", content: input.historyText },
+      { role: "user", content: input.userPromptText },
     ];
 
     return msgs;

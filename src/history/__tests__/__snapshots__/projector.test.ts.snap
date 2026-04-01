@@ -1,0 +1,31 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`projectHistory > snapshots > snapshot: collision then speech (yielder view) 1`] = `
+"- [0.0s] 讨论开始 — 话题：AI意识
+- [0.5s] **DeepSeek**：
+  > 开场白。
+- [2.0s] 你和 Claude 同时开口了，你决定让 Claude 先说
+  你想说但没说出来的：
+  > 我有不同看法。
+  Claude 说：
+  > 我要反驳——AI没有主观体验。"
+`;
+
+exports[`projectHistory > snapshots > snapshot: mixed realistic sequence 1`] = `
+"- [0.0s] 讨论开始 — 话题：AI意识
+- [1.0s] **Claude**：
+  > 我觉得AI有意识。
+- [4.0s] **你**：
+  > 我不同意。
+- [5.0s] 安静了 1 秒（累计 1 秒）
+- [7.0s] **DeepSeek**：
+  > 我来说说。"
+`;
+
+exports[`projectHistory > snapshots > snapshot: unresolved collision (participant view) 1`] = `
+"- [0.0s] 讨论开始 — 话题：AI意识
+- [1.0s] 你和 GPT-4o、DeepSeek 同时开口了，声音重叠，没有人听清
+  你想说的是：
+  > 让我先说。
+- [2.5s] 安静了 1 秒（累计 1 秒）"
+`;

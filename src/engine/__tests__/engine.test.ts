@@ -180,4 +180,46 @@ describe("runIteration", () => {
 
     expect(r2.debug.iterationId).toBe(1);
   });
+
+  it("negotiation projected history does not include the current collision", async () => {
+    const state = initSession();
+    // Two agents speak → collision → negotiation
+    const negotiationCalls: ModelCallInput[] = [];
+    const gw = new DummyGateway(() => "");
+    gw.generate = async (input) => {
+      if (input.mode === "negotiation") {
+        negotiationCalls.push(input);
+        // First agent yields so negotiation converges
+        return {
+          agentId: input.agentId,
+          text: input.agentId === "claude" ? "让步" : "坚持",
+          finishReason: "completed" as const,
+        };
+      }
+      // Reaction mode: claude and gpt speak, deepseek silent
+      return {
+        agentId: input.agentId,
+        text: input.agentId === "deepseek" ? "[silence]" : "我要说话。",
+        finishReason: "completed" as const,
+      };
+    };
+
+    await runIteration(state, gw);
+
+    // Negotiation should have been triggered
+    expect(negotiationCalls.length).toBeGreaterThan(0);
+
+    // On the first iteration, the only event before the collision is discussion_started.
+    // The projected history (before the first \n\n separator) should contain only that,
+    // not the collision description — which belongs to the turn directive.
+    for (const call of negotiationCalls) {
+      const text = call.userPromptText;
+      // composeUserPrompt joins: projectedHistory + "\n\n" + turnDirective
+      // So the first segment before "\n\n" is the projected history.
+      const firstSeparator = text.indexOf("\n\n");
+      const projectedHistoryPart = firstSeparator === -1 ? "" : text.slice(0, firstSeparator);
+      expect(projectedHistoryPart).toContain("讨论开始");
+      expect(projectedHistoryPart).not.toContain("同时开口");
+    }
+  });
 });

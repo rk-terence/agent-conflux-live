@@ -1,6 +1,13 @@
 export {
   buildSystemPrompt,
   buildReactionInput,
-} from "./builder.js";
-export type { ReactionParams } from "./builder.js";
+} from "./builders/reaction.js";
+export type { ReactionParams, CollisionContext } from "./builders/reaction.js";
+
+export { buildNegotiationInput } from "./builders/negotiation.js";
+export type { NegotiationCandidate, NegotiationRoundSnapshot } from "./builders/negotiation.js";
+
+export { render } from "./render.js";
+export { composeUserPrompt } from "./compose.js";
+export type { PromptParts } from "./compose.js";
 export * from "./constants.js";

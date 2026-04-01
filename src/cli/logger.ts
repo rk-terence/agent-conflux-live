@@ -13,7 +13,7 @@ import type { NegotiationOutcome } from "../negotiation/negotiation.js";
 type LogEntry =
   | { type: "session_start"; timestamp: string; sessionId: string; topic: string; participants: { agentId: string; name: string; model: string }[] }
   | { type: "iteration_start"; timestamp: string; iterationId: number; phase: string; virtualTime: number }
-  | { type: "prompt"; timestamp: string; iterationId: number; agentId: string; mode: string; systemPrompt: string; historyText: string; assistantPrefill?: string; selfStatusText?: string; maxTokens: number }
+  | { type: "prompt"; timestamp: string; iterationId: number; agentId: string; mode: string; systemPrompt: string; userPromptText: string; assistantPrefill?: string; selfStatusText?: string; maxTokens: number }
   | { type: "response"; timestamp: string; iterationId: number; agentId: string; rawText: string; finishReason: string; latencyMs?: number; normalizedType: string; normalizedText?: string }
   | { type: "events"; timestamp: string; iterationId: number; events: readonly DomainEvent[] }
   | { type: "iteration_end"; timestamp: string; iterationId: number; wallClockMs: number; nextPhase: string; virtualTime: number }
@@ -115,7 +115,7 @@ export class DiscussionLogger {
       agentId: input.agentId,
       mode: input.mode,
       systemPrompt: input.systemPrompt,
-      historyText: input.historyText,
+      userPromptText: input.userPromptText,
       assistantPrefill: input.assistantPrefill,
       selfStatusText: input.selfStatusText,
       maxTokens: input.maxTokens,
@@ -129,8 +129,8 @@ export class DiscussionLogger {
       this.appendLog(`  │  │ ${line}`);
     }
     this.appendLog(`  │`);
-    this.appendLog(`  │  [History / User Message]`);
-    for (const line of input.historyText.split("\n")) {
+    this.appendLog(`  │  [User Prompt (History + Turn Directive)]`);
+    for (const line of input.userPromptText.split("\n")) {
       this.appendLog(`  │  │ ${line}`);
     }
     if (input.assistantPrefill) {
@@ -197,8 +197,8 @@ export class DiscussionLogger {
         for (const line of d.prompt.systemPrompt.split("\n")) {
           this.appendLog(`  │    │ ${line}`);
         }
-        this.appendLog(`  │    [User Message]`);
-        for (const line of d.prompt.historyText.split("\n")) {
+        this.appendLog(`  │    [User Prompt]`);
+        for (const line of d.prompt.userPromptText.split("\n")) {
           this.appendLog(`  │    │ ${line}`);
         }
       }

@@ -12,6 +12,7 @@
  */
 
 import type { ModelGateway, ModelCallInput, ModelCallOutput } from "../model-gateway/types.js";
+import { buildNegotiationInput } from "../prompting/builders/negotiation.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,8 +51,6 @@ export type NegotiationOutcome = {
 
 /** Maximum negotiation rounds before forcing all-yield */
 const MAX_ROUNDS = 5;
-
-const NEGOTIATION_MAX_TOKENS = 20;
 
 // ---------------------------------------------------------------------------
 // Main negotiation function
@@ -176,89 +175,6 @@ async function runNegotiationRound(
     rawText: output.text,
     prompt: input,
   }));
-}
-
-// ---------------------------------------------------------------------------
-// Prompt construction
-// ---------------------------------------------------------------------------
-
-function buildNegotiationInput(
-  round: number,
-  candidate: CollisionCandidate,
-  activeCandidates: readonly CollisionCandidate[],
-  previousRounds: readonly NegotiationRoundResult[],
-  allCandidates: readonly CollisionCandidate[],
-  allParticipantNames: readonly string[],
-  topic: string,
-  discussionHistory: string,
-  sessionId: string,
-  iterationId: number,
-  abortSignal?: AbortSignal,
-): ModelCallInput {
-  const otherNames = activeCandidates
-    .filter(c => c.agentId !== candidate.agentId)
-    .map(c => c.agentName);
-
-  const systemPrompt = [
-    `你是 ${candidate.agentName}，正在参与一个关于「${topic}」的圆桌讨论。`,
-    `刚才你和其他人同时开口了，声音重叠，没有人听清。`,
-    `现在需要协商谁先发言。请根据讨论的上下文和你的判断决定：坚持发言，还是让别人先说。`,
-    `只回复"坚持"或"让步"，不要输出其他内容。`,
-  ].join("\n");
-
-  const historyParts: string[] = [];
-
-  // Include discussion history so the model has full context
-  if (discussionHistory) {
-    historyParts.push("到目前为止的讨论：");
-    historyParts.push(discussionHistory);
-    historyParts.push("");
-  }
-
-  // Check if this candidate was @-mentioned AFTER their last speech.
-  // Once they've spoken (responded), the mention is "consumed".
-  const mentionTag = `@${candidate.agentName}`;
-  const lastMention = discussionHistory.lastIndexOf(mentionTag);
-  const selfTag = `[你]:`;
-  const lastSpeech = discussionHistory.lastIndexOf(selfTag);
-  const wasMentioned = lastMention !== -1 && lastMention > lastSpeech;
-
-  // Describe the collision
-  historyParts.push(`你和 ${otherNames.join("、")} 同时开口了。你想说的是「${candidate.utterance}」，但没有人听清。`);
-
-  if (wasMentioned) {
-    historyParts.push(`注意：刚才有人在讨论中点名向你（@${candidate.agentName}）提问，你可能更有理由坚持发言来回应。`);
-  }
-
-  // Add previous round results
-  for (const pr of previousRounds) {
-    const roundDesc = pr.decisions.map(d => {
-      const name = d.agentId === candidate.agentId ? "你" : d.agentName;
-      return `${name}${d.decision === "insist" ? "坚持" : "让步"}`;
-    });
-    historyParts.push(`第 ${pr.round} 轮协商：${roundDesc.join("，")}。`);
-  }
-
-  // Current round context
-  if (previousRounds.length > 0) {
-    const stillCompeting = activeCandidates
-      .filter(c => c.agentId !== candidate.agentId)
-      .map(c => c.agentName);
-    historyParts.push(`目前还有你和 ${stillCompeting.join("、")} 都想说话，已经僵持了 ${previousRounds.length} 轮。`);
-  }
-
-  historyParts.push(`\n你要坚持发言，还是让步？`);
-
-  return {
-    sessionId,
-    iterationId,
-    agentId: candidate.agentId,
-    mode: "reaction",
-    systemPrompt,
-    historyText: historyParts.join("\n"),
-    maxTokens: NEGOTIATION_MAX_TOKENS,
-    abortSignal,
-  };
 }
 
 // ---------------------------------------------------------------------------

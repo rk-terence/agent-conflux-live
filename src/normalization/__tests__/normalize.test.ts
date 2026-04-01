@@ -107,6 +107,58 @@ describe("normalizeOutput", () => {
         text: "我同意这个观点。",
       });
     });
+
+    it("strips [AgentName]: prefix with hyphen in name", () => {
+      const result = normalizeOutput(
+        makeOutput({ text: "[GPT-4o]: 这个问题值得思考。" }),
+        "reaction",
+      );
+      expect(result.output).toMatchObject({
+        type: "speech",
+        text: "这个问题值得思考。",
+      });
+    });
+
+    it("strips **AgentName**： markdown prefix", () => {
+      const result = normalizeOutput(
+        makeOutput({ text: "**Claude**：我有不同看法。" }),
+        "reaction",
+      );
+      expect(result.output).toMatchObject({
+        type: "speech",
+        text: "我有不同看法。",
+      });
+    });
+
+    it("strips **AgentName**： markdown prefix with hyphen", () => {
+      const result = normalizeOutput(
+        makeOutput({ text: "**GPT-4o**：让我来分析一下。" }),
+        "reaction",
+      );
+      expect(result.output).toMatchObject({
+        type: "speech",
+        text: "让我来分析一下。",
+      });
+    });
+
+    it("strips **AgentName**： markdown prefix with spaces and dots", () => {
+      const result = normalizeOutput(
+        makeOutput({ text: "**Gemini 2.5 Pro**：我的看法是这样的。" }),
+        "reaction",
+      );
+      expect(result.output).toMatchObject({
+        type: "speech",
+        text: "我的看法是这样的。",
+      });
+    });
+
+    it("detects markdown-format history hallucination", () => {
+      const result = normalizeOutput(
+        makeOutput({ text: "- [1.5s] **Claude**：\n  > 之前的话" }),
+        "reaction",
+      );
+      expect(result.output).toMatchObject({ type: "silence" });
+    });
   });
 
   describe("parenthetical stripping", () => {

@@ -78,8 +78,8 @@ const MIN_SPEECH_LENGTH = 4;
  */
 function cleanSpeechText(text: string): string {
   // Detect history hallucination: model outputs text that mimics the
-  // timestamped history format, e.g. "[2.5s] Gemini 说：「...」"
-  if (/^\[\d+\.\d+s\]/.test(text)) return "";
+  // timestamped history format, e.g. "- [2.5s] **Gemini**：" or "[2.5s] ..."
+  if (/^-?\s*\[\d+\.\d+s\]/.test(text)) return "";
 
   let cleaned = stripParentheticals(stripSpeakerPrefix(text));
 
@@ -92,13 +92,20 @@ function cleanSpeechText(text: string): string {
 /**
  * Strip speaker prefixes that models sometimes echo from history projection.
  *
- * Models (notably Gemini) see history formatted as "[你]: 之前说的话" and
- * mimic this format in their output, e.g. "[你]: 没关系。"
+ * Models may mimic the history format in their output.
  * The prefix is not actual speech — strip it so only the spoken words remain.
- * Matches patterns like "[你]: ", "[Gemini]: ", "[DeepSeek]:", etc.
+ * Matches patterns like:
+ * - Old format: "[你]: ", "[Gemini]: ", "[GPT-4o]:"
+ * - Current format: "**你**：", "**GPT-4o**：", "**Gemini 2.5 Pro**："
+ *
+ * Agent names may contain word chars, CJK, hyphens, dots, and spaces (e.g. "GPT-4o",
+ * "Claude-3.5", "Gemini 2.5 Pro"), so the character class must be broad enough.
  */
 function stripSpeakerPrefix(text: string): string {
-  return text.replace(/^\[[\w\u4e00-\u9fff]+\][：:]\s*/u, "").trim();
+  return text
+    .replace(/^\[[\w\u4e00-\u9fff][\w\u4e00-\u9fff.\- ]*\][：:]\s*/u, "")
+    .replace(/^\*\*[\w\u4e00-\u9fff][\w\u4e00-\u9fff.\- ]*\*\*[：:]\s*/u, "")
+    .trim();
 }
 
 /**

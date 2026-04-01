@@ -87,7 +87,7 @@ src/                          # 框架无关的核心引擎
   engine/                     # 单次迭代编排器
   negotiation/                # 碰撞协商：多轮 insist/yield 决策
   history/                    # 视角相关的对话历史投影
-  prompting/                  # 系统提示词、调用输入构建
+  prompting/                  # Prompt 模板、渲染器、构建器
   model-gateway/              # 网关接口、Dummy + SmartDummy + ZenMux
   normalization/              # 原始输出清洗与分类
   runner/                     # 讨论循环驱动
@@ -98,7 +98,7 @@ ui/                           # React 应用（实验性，已知问题待修，
 
 ## 当前状态
 
-核心引擎已完成，66 个测试全部通过。碰撞协商机制有效运作，讨论能正常推进。CLI 工具提供完整的 prompt/response 日志，用于迭代优化。
+核心引擎已完成，95 个测试全部通过。碰撞协商机制有效运作，讨论能正常推进。CLI 工具提供完整的 prompt/response 日志，用于迭代优化。
 
 ## 文档
 

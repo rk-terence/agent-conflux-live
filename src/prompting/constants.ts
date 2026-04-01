@@ -1,1 +1,3 @@
 export const REACTION_MAX_TOKENS = 300;
+
+export const NEGOTIATION_MAX_TOKENS = 20;

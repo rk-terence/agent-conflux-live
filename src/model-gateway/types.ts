@@ -1,4 +1,4 @@
-export type CallMode = "reaction";
+export type CallMode = "reaction" | "negotiation";
 
 export type ModelCallInput = {
   readonly sessionId: string;
@@ -6,7 +6,16 @@ export type ModelCallInput = {
   readonly agentId: string;
   readonly mode: CallMode;
   readonly systemPrompt: string;
-  readonly historyText: string;
+  /**
+   * The user-side prompt text sent to the model.
+   *
+   * Semantically this is the serialized combination of:
+   * - **projected history** — perspective-specific markdown transcript of prior events
+   * - **turn directive** — the instruction for this call, including any situational hints
+   *
+   * These two parts are composed by the prompting layer before being passed here.
+   */
+  readonly userPromptText: string;
   readonly assistantPrefill?: string;
   readonly selfStatusText?: string;
   readonly maxTokens: number;

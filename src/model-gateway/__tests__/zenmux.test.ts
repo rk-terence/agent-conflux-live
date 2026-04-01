@@ -13,7 +13,7 @@ function reactionInput(overrides?: Partial<ModelCallInput>): ModelCallInput {
     agentId: "claude",
     mode: "reaction",
     systemPrompt: "你是 Claude",
-    historyText: "---\n你的反应？",
+    userPromptText: "---\n你的反应？",
     maxTokens: 80,
     ...overrides,
   };

@@ -98,8 +98,7 @@ export class SmartDummyGateway implements ModelGateway {
       return { agentId: input.agentId, text: "", finishReason: "cancelled" };
     }
 
-    // Detect negotiation prompts (system prompt contains "坚持发言" or "让步")
-    if (input.systemPrompt.includes("坚持发言，还是让别人先说")) {
+    if (input.mode === "negotiation") {
       return this.handleNegotiation(input);
     }
 
@@ -134,7 +133,7 @@ export class SmartDummyGateway implements ModelGateway {
 
     // Later negotiation rounds: increase yield probability (social pressure)
     let insistChance = personality.insistChance;
-    const roundMatch = input.historyText.match(/已经僵持了 (\d+) 轮/);
+    const roundMatch = input.userPromptText.match(/已经僵持了 (\d+) 轮/);
     if (roundMatch) {
       const stalledRounds = parseInt(roundMatch[1], 10);
       // Each stalled round reduces insist chance by 20%
