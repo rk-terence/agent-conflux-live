@@ -63,7 +63,7 @@ The collision problem was the central challenge of this project. Key findings:
 
 Based on observed behavior with real API:
 
-- **DeepSeek (deepseek-chat)**: Almost never yields. Extremely assertive. Will insist round after round until the other party gives up. This is a model-level personality trait, not a prompt issue.
+- **DeepSeek (deepseek-chat)**: Inconsistent negotiation personality. In some runs, extremely assertive (never yields, insists round after round). In others, consistently passive — always chooses `mid` insistence, never escalates to `high`, and loses every collision against more assertive opponents. This variability may be topic-dependent or prompt-sensitive. Starvation hints (added to help passive agents self-correct) partially mitigate the passive case.
 - **Gemini (2.5-flash)**: Very polite, tends to yield quickly. Often yields even when @-mentioned. Produces long, comprehensive responses when it does speak.
 - **Qwen (qwen3-vl-plus)**: Balanced. Will insist when it has something specific to say (especially when continuing a thread). Yields when the discussion doesn't directly involve it.
 

@@ -46,3 +46,6 @@ export const FREQUENT_COLLIDERS_TEMPLATE =
 
 export const REACTION_MENTION_HINT_TEMPLATE =
   "有人在讨论中提到了你（@{{agentName}}），你可能想要回应。";
+
+export const REACTION_STARVATION_HINT_TEMPLATE =
+  "你已经连续 {{losses}} 次想发言但都因为同时有人开口而没有说出来。你可以考虑在坚持程度上做出调整。";

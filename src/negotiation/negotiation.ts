@@ -98,6 +98,7 @@ export async function negotiateCollision(
   sessionId: string,
   iterationId: number,
   abortSignal?: AbortSignal,
+  starvationCounts?: ReadonlyMap<string, number>,
 ): Promise<NegotiationOutcome> {
   // --- Tier 1: Pre-declared insistence comparison (zero API calls) ---
   const tier1Winner = tryTier1(candidates);
@@ -125,6 +126,7 @@ export async function negotiateCollision(
       sessionId,
       iterationId,
       abortSignal,
+      starvationCounts,
     );
 
     rounds.push({ round, decisions });
@@ -182,6 +184,57 @@ export async function negotiateCollision(
 }
 
 // ---------------------------------------------------------------------------
+// Retry helper for negotiation API calls
+// ---------------------------------------------------------------------------
+
+/** Maximum number of retries for a failed negotiation API call */
+const MAX_NEGOTIATION_RETRIES = 2;
+
+async function generateWithRetry(
+  gateway: ModelGateway,
+  input: ModelCallInput,
+): Promise<ModelCallOutput> {
+  let lastResult: ModelCallOutput | undefined;
+  for (let attempt = 0; attempt <= MAX_NEGOTIATION_RETRIES; attempt++) {
+    try {
+      const output = await gateway.generate(input);
+      // Don't retry cancellations — they are intentional
+      if (output.finishReason === "cancelled") return output;
+      if (output.finishReason === "error" && attempt < MAX_NEGOTIATION_RETRIES) {
+        console.warn(
+          `[negotiation] ${input.agentId} attempt ${attempt + 1} failed: ${output.text}, retrying...`,
+        );
+        lastResult = output;
+        await delay(500 * (attempt + 1), input.abortSignal);
+        continue;
+      }
+      return output;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (attempt < MAX_NEGOTIATION_RETRIES) {
+        console.warn(
+          `[negotiation] ${input.agentId} attempt ${attempt + 1} threw: ${msg}, retrying...`,
+        );
+        lastResult = { agentId: input.agentId, text: msg, finishReason: "error" as const };
+        await delay(500 * (attempt + 1), input.abortSignal);
+        continue;
+      }
+      return { agentId: input.agentId, text: msg, finishReason: "error" as const };
+    }
+  }
+  // All retries exhausted — return last error result
+  return lastResult!;
+}
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve();
+  return new Promise(resolve => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Tier 1: Pre-declared insistence comparison
 // ---------------------------------------------------------------------------
 
@@ -207,6 +260,7 @@ async function runNegotiationRound(
   sessionId: string,
   iterationId: number,
   abortSignal?: AbortSignal,
+  starvationCounts?: ReadonlyMap<string, number>,
 ): Promise<AgentDecision[]> {
   const calls = active.map(candidate => {
     const input = buildNegotiationInput(
@@ -221,18 +275,10 @@ async function runNegotiationRound(
       sessionId,
       iterationId,
       abortSignal,
+      starvationCounts?.get(candidate.agentId),
     );
-    return gateway.generate(input).then(
+    return generateWithRetry(gateway, input).then(
       output => ({ candidate, input, output }),
-      (err: unknown): { candidate: CollisionCandidate; input: ModelCallInput; output: ModelCallOutput } => ({
-        candidate,
-        input,
-        output: {
-          agentId: candidate.agentId,
-          text: err instanceof Error ? err.message : String(err),
-          finishReason: "error" as const,
-        },
-      }),
     );
   });
 
@@ -274,16 +320,8 @@ async function runVotingRound(
       iterationId,
       abortSignal,
     });
-    return gateway.generate(input).then(
+    return generateWithRetry(gateway, input).then(
       output => ({ voter, output }),
-      (err: unknown) => ({
-        voter,
-        output: {
-          agentId: voter.agentId,
-          text: err instanceof Error ? err.message : String(err),
-          finishReason: "error" as const,
-        } as ModelCallOutput,
-      }),
     );
   });
 

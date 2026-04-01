@@ -206,6 +206,11 @@ export async function runIteration(
       );
     }
 
+    const starvationCounts = new Map<string, number>();
+    for (const c of candidates) {
+      starvationCounts.set(c.agentId, countConsecutiveCollisionLosses(state.events, c.agentId));
+    }
+
     negotiation = await negotiateCollision(
       candidates,
       allParticipantInfo,
@@ -216,6 +221,7 @@ export async function runIteration(
       state.sessionId,
       iterationId,
       abortSignal,
+      starvationCounts,
     );
 
     // Emit collision_resolved event with full resolution metadata
@@ -297,6 +303,7 @@ function buildAgentCall(
   });
 
   const collisionContext = buildCollisionContext(state, agentId);
+  const consecutiveCollisionLosses = countConsecutiveCollisionLosses(state.events, agentId);
 
   return buildReactionInput({
     sessionId: state.sessionId,
@@ -307,6 +314,7 @@ function buildAgentCall(
     topic: state.topic,
     projectedHistory,
     collisionContext,
+    consecutiveCollisionLosses,
     abortSignal,
   });
 }
@@ -355,6 +363,31 @@ function findLastSpeaker(state: SessionState): string | null {
     if (e.kind === "turn_ended") return e.speakerId;
   }
   return null;
+}
+
+/**
+ * Count how many consecutive collisions this agent participated in
+ * without winning (i.e. without getting to speak). Walks events backward
+ * and stops when the agent last successfully spoke or won a collision.
+ */
+export function countConsecutiveCollisionLosses(
+  events: readonly DomainEvent[],
+  agentId: string,
+): number {
+  let losses = 0;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    // Agent won this collision → they spoke after it, stop counting
+    if (e.kind === "collision_resolved" && e.winnerId === agentId) return losses;
+    // Agent successfully spoke → stop counting
+    if (e.kind === "sentence_committed" && e.speakerId === agentId) return losses;
+    if (e.kind === "turn_ended" && e.speakerId === agentId) return losses;
+    // Agent participated in a collision → count as a loss
+    if (e.kind === "collision" && e.utterances.some(u => u.agentId === agentId)) {
+      losses++;
+    }
+  }
+  return losses;
 }
 
 /**

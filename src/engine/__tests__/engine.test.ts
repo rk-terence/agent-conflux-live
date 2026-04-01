@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { runIteration } from "../engine.js";
+import { runIteration, countConsecutiveCollisionLosses } from "../engine.js";
 import { createSession } from "../../domain/session.js";
 import { DummyGateway } from "../../model-gateway/dummy.js";
 import type { ModelCallInput } from "../../model-gateway/types.js";
-import type { SessionState } from "../../domain/types.js";
+import type { SessionState, DomainEvent } from "../../domain/types.js";
 
 // --- Helpers ---
 
@@ -263,5 +263,83 @@ describe("runIteration", () => {
     const speechIdx = kinds.indexOf("sentence_committed");
     expect(collIdx).toBeLessThan(resIdx);
     expect(resIdx).toBeLessThan(speechIdx);
+  });
+});
+
+describe("countConsecutiveCollisionLosses", () => {
+  const ts = 0;
+
+  it("returns 0 when no events", () => {
+    expect(countConsecutiveCollisionLosses([], "a")).toBe(0);
+  });
+
+  it("returns 0 when agent never participated in a collision", () => {
+    const events: DomainEvent[] = [
+      { kind: "discussion_started", timestamp: ts, topic: "t", participants: [] },
+    ];
+    expect(countConsecutiveCollisionLosses(events, "a")).toBe(0);
+  });
+
+  it("counts consecutive collision losses", () => {
+    const events: DomainEvent[] = [
+      { kind: "collision", timestamp: ts, during: "gap", utterances: [
+        { agentId: "a", text: "x", tokenCount: 1, insistence: "mid" },
+        { agentId: "b", text: "y", tokenCount: 1, insistence: "mid" },
+      ]},
+      { kind: "collision_resolved", timestamp: ts, winnerId: "b", tier: 1, negotiationRounds: [] },
+      { kind: "sentence_committed", timestamp: ts, speakerId: "b", sentence: "y", tokenCount: 1, durationSeconds: 1, turnSentenceIndex: 0 },
+      { kind: "turn_ended", timestamp: ts, speakerId: "b", totalSentences: 1, totalDuration: 1 },
+      { kind: "collision", timestamp: ts, during: "gap", utterances: [
+        { agentId: "a", text: "x2", tokenCount: 1, insistence: "mid" },
+        { agentId: "c", text: "z", tokenCount: 1, insistence: "mid" },
+      ]},
+      { kind: "collision_resolved", timestamp: ts, winnerId: "c", tier: 1, negotiationRounds: [] },
+      { kind: "sentence_committed", timestamp: ts, speakerId: "c", sentence: "z", tokenCount: 1, durationSeconds: 1, turnSentenceIndex: 0 },
+      { kind: "turn_ended", timestamp: ts, speakerId: "c", totalSentences: 1, totalDuration: 1 },
+    ];
+    expect(countConsecutiveCollisionLosses(events, "a")).toBe(2);
+  });
+
+  it("stops counting when agent won a collision", () => {
+    const events: DomainEvent[] = [
+      { kind: "collision", timestamp: ts, during: "gap", utterances: [
+        { agentId: "a", text: "x", tokenCount: 1, insistence: "mid" },
+        { agentId: "b", text: "y", tokenCount: 1, insistence: "mid" },
+      ]},
+      { kind: "collision_resolved", timestamp: ts, winnerId: "a", tier: 1, negotiationRounds: [] },
+      { kind: "sentence_committed", timestamp: ts, speakerId: "a", sentence: "x", tokenCount: 1, durationSeconds: 1, turnSentenceIndex: 0 },
+      { kind: "turn_ended", timestamp: ts, speakerId: "a", totalSentences: 1, totalDuration: 1 },
+      { kind: "collision", timestamp: ts, during: "gap", utterances: [
+        { agentId: "a", text: "x2", tokenCount: 1, insistence: "mid" },
+        { agentId: "b", text: "y2", tokenCount: 1, insistence: "mid" },
+      ]},
+      { kind: "collision_resolved", timestamp: ts, winnerId: "b", tier: 1, negotiationRounds: [] },
+    ];
+    // Only the last collision (after the win) counts
+    expect(countConsecutiveCollisionLosses(events, "a")).toBe(1);
+  });
+
+  it("stops counting when agent spoke (sentence_committed)", () => {
+    const events: DomainEvent[] = [
+      { kind: "sentence_committed", timestamp: ts, speakerId: "a", sentence: "hello", tokenCount: 1, durationSeconds: 1, turnSentenceIndex: 0 },
+      { kind: "turn_ended", timestamp: ts, speakerId: "a", totalSentences: 1, totalDuration: 1 },
+      { kind: "collision", timestamp: ts, during: "gap", utterances: [
+        { agentId: "a", text: "x", tokenCount: 1, insistence: "mid" },
+        { agentId: "b", text: "y", tokenCount: 1, insistence: "mid" },
+      ]},
+      { kind: "collision_resolved", timestamp: ts, winnerId: "b", tier: 1, negotiationRounds: [] },
+    ];
+    expect(countConsecutiveCollisionLosses(events, "a")).toBe(1);
+  });
+
+  it("returns 0 for the collision winner", () => {
+    const events: DomainEvent[] = [
+      { kind: "collision", timestamp: ts, during: "gap", utterances: [
+        { agentId: "a", text: "x", tokenCount: 1, insistence: "mid" },
+        { agentId: "b", text: "y", tokenCount: 1, insistence: "mid" },
+      ]},
+      { kind: "collision_resolved", timestamp: ts, winnerId: "a", tier: 1, negotiationRounds: [] },
+    ];
+    expect(countConsecutiveCollisionLosses(events, "a")).toBe(0);
   });
 });

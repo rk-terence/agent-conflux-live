@@ -19,6 +19,8 @@
 - [x] 碰撞协商从二值 insist/yield 改为四层级系统（预声明意愿 → 多轮三档协商 → 旁观者投票 → 随机），保证收敛
 - [x] Normalization 增加 JSON 提取与结构化解析，保留对自由文本的向后兼容 fallback
 - [x] `InsistenceLevel` 类型贯穿 domain → engine → negotiation 全链路
+- [x] 饥饿保护：连续碰撞失败 ≥2 次后在 reaction 和 negotiation prompt 中加入 starvation hint，告知 agent 失败次数
+- [x] 协商 API 重试：Tier 2/3 调用失败时最多重试 2 次（线性退避），处理 cancelled 信号，全部失败后才 fallback
 
 ## Next
 - [ ] 减少 meta 发言（如”让我把话说完””抱歉刚才重叠了”），让模型更聚焦话题本身

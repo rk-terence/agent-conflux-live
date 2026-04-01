@@ -118,6 +118,8 @@ Four-tier resolution:
 Key behaviors:
 
 - **@mention awareness**: if an agent was recently @-mentioned (after their last speech), both the reaction turn directive (soft nudge to respond) and the negotiation prompt (stronger reason to insist) include a mention hint
+- **Starvation awareness**: if an agent has lost ≥ 2 consecutive collisions without speaking, both the reaction and negotiation prompts include a starvation hint informing the agent of the situation. The hint does not override the agent's choice — it only provides information so the agent can decide whether to adjust insistence
+- **API retry in negotiation**: Tier 2 and Tier 3 API calls use a retry mechanism (max 2 retries with linear backoff) to handle transient provider failures. Cancellations are not retried. Exhausted retries fall back to the existing conservative default (`"low"` for insistence, invalid vote for voting)
 - **Full discussion context**: each agent sees their perspective-specific history in negotiation and voting prompts
 - **All rounds and votes logged**: every tier's decisions are recorded both in debug output and in `CollisionResolvedEvent` domain events
 - **Guaranteed convergence**: Tier 4 is an unconditional termination point — collisions always resolve
@@ -204,8 +206,8 @@ Structure:
 - `prompting/templates/negotiation.ts` — pure constant template for the negotiation system prompt, collision description, mention hint, round summaries, and deadlock notice. Instructs models to output JSON insistence level.
 - `prompting/templates/voting.ts` — pure constant template for the bystander voting system prompt. Instructs models to output JSON vote.
 - `prompting/render.ts` — strict slot renderer: replaces `{{key}}` placeholders, throws on missing variables.
-- `prompting/builders/reaction.ts` — prepares variables (agent name, other names, topic, collision context, @mention detection) and renders the reaction prompt via templates.
-- `prompting/builders/negotiation.ts` — prepares variables (discussion history, @mention detection, round summaries, deadlock context) and renders the negotiation prompt via templates.
+- `prompting/builders/reaction.ts` — prepares variables (agent name, other names, topic, collision context, @mention detection, starvation count) and renders the reaction prompt via templates.
+- `prompting/builders/negotiation.ts` — prepares variables (discussion history, @mention detection, starvation count, round summaries, deadlock context) and renders the negotiation prompt via templates.
 - `prompting/builders/voting.ts` — prepares variables (voter, candidates, discussion history) and renders the voting prompt via templates.
 - `prompting/mention-utils.ts` — @mention detection utility shared by reaction and negotiation builders.
 - `prompting/constants.ts` — token limits (REACTION_MAX_TOKENS = 250, NEGOTIATION_MAX_TOKENS = 30, VOTING_MAX_TOKENS = 30).
@@ -236,7 +238,7 @@ Turn directive rules:
 - Reaction mode turn directive asks for a JSON response (speech + insistence)
 - Negotiation mode turn directive asks for a JSON insistence level declaration
 - Voting mode turn directive asks for a JSON vote for a candidate
-- Collision reminders, @mention reminders, round summaries, and deadlock notes are part of the turn directive, not part of projected history
+- Collision reminders, @mention reminders, starvation hints, round summaries, and deadlock notes are part of the turn directive, not part of projected history
 - Builders may assemble the turn directive from multiple template fragments, but the final prompt contract still treats it as one semantic part
 
 Ownership boundaries:
@@ -310,6 +312,7 @@ Error boundaries:
 
 - **Domain layer**: `AgentOutput` only allows `speech | silence`. No `error` variant. Reducer never receives errors.
 - **Engine layer**: catches all gateway rejections. Retries failed agents once **if at least one agent succeeded** (keeps successful responses). When all agents fail simultaneously, no retry is attempted — this likely indicates a provider-wide outage where retrying would be futile. All errors are converted to silence. The engine always returns a result — the discussion proceeds regardless of individual agent failures.
+- **Negotiation layer**: Tier 2 and Tier 3 API calls use `generateWithRetry` (max 2 retries, linear backoff). Exhausted retries produce error output that falls through to conservative parsing defaults.
 - **Runner layer**: receives engine results directly (no failure variant). Fatal errors (reducer throws) are caught and terminate the discussion.
 
 ## Collision Virtual Time

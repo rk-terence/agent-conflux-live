@@ -32,4 +32,7 @@ export const ROUND_RESULT_TEMPLATE =
 export const DEADLOCK_TEMPLATE =
   "目前还有你和 {{competitors}} 都想说话，已经僵持了 {{roundCount}} 轮。";
 
+export const NEGOTIATION_STARVATION_HINT_TEMPLATE =
+  "注意：你已经连续 {{losses}} 次想发言但都没有成功说出来。如果你的观点仍然切合当前讨论，可以考虑调整你的坚持程度。";
+
 export const NEGOTIATION_QUESTION = "请用 JSON 格式回复你的坚持程度。";

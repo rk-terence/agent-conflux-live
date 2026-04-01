@@ -9,6 +9,7 @@ import {
   COLLISION_NOTICE_TEMPLATE,
   FREQUENT_COLLIDERS_TEMPLATE,
   REACTION_MENTION_HINT_TEMPLATE,
+  REACTION_STARVATION_HINT_TEMPLATE,
 } from "../templates/reaction.js";
 import { wasMentionedAfterLastSpeech } from "../mention-utils.js";
 
@@ -36,6 +37,8 @@ export type ReactionParams = {
   readonly projectedHistory: string;
   /** Collision context for situational awareness (part of the turn directive) */
   readonly collisionContext?: CollisionContext;
+  /** How many consecutive collisions this agent lost (0 = none) */
+  readonly consecutiveCollisionLosses?: number;
   readonly abortSignal?: AbortSignal;
 };
 
@@ -65,11 +68,19 @@ export function buildSystemPrompt(
 // Turn directive
 // ---------------------------------------------------------------------------
 
-function buildTurnDirective(collisionContext?: CollisionContext, mentionHint?: string): string {
+function buildTurnDirective(
+  collisionContext?: CollisionContext,
+  mentionHint?: string,
+  starvationHint?: string,
+): string {
   const parts: string[] = [];
 
   if (mentionHint) {
     parts.push(mentionHint);
+  }
+
+  if (starvationHint) {
+    parts.push(starvationHint);
   }
 
   parts.push(`---\n${REACTION_TURN_PROMPT}`);
@@ -101,7 +112,11 @@ export function buildReactionInput(params: ReactionParams): ModelCallInput {
   const mentionHint = wasMentionedAfterLastSpeech(params.projectedHistory, params.agentName)
     ? render(REACTION_MENTION_HINT_TEMPLATE, { agentName: params.agentName })
     : undefined;
-  const turnDirective = buildTurnDirective(params.collisionContext, mentionHint);
+  const losses = params.consecutiveCollisionLosses ?? 0;
+  const starvationHint = losses >= 2
+    ? render(REACTION_STARVATION_HINT_TEMPLATE, { losses: String(losses) })
+    : undefined;
+  const turnDirective = buildTurnDirective(params.collisionContext, mentionHint, starvationHint);
 
   return {
     sessionId: params.sessionId,

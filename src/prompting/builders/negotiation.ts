@@ -6,6 +6,7 @@ import {
   NEGOTIATION_SYSTEM_TEMPLATE,
   COLLISION_DESC_TEMPLATE,
   MENTION_HINT_TEMPLATE,
+  NEGOTIATION_STARVATION_HINT_TEMPLATE,
   ROUND_RESULT_TEMPLATE,
   DEADLOCK_TEMPLATE,
   NEGOTIATION_QUESTION,
@@ -60,6 +61,7 @@ function buildTurnDirective(
   activeCandidates: readonly NegotiationCandidate[],
   previousRounds: readonly NegotiationRoundSnapshot[],
   projectedHistory: string,
+  consecutiveCollisionLosses?: number,
 ): string {
   const parts: string[] = [];
 
@@ -77,6 +79,13 @@ function buildTurnDirective(
   if (wasMentionedAfterLastSpeech(projectedHistory, candidate.agentName)) {
     parts.push(render(MENTION_HINT_TEMPLATE, {
       agentName: candidate.agentName,
+    }));
+  }
+
+  // Starvation hint
+  if (consecutiveCollisionLosses != null && consecutiveCollisionLosses >= 2) {
+    parts.push(render(NEGOTIATION_STARVATION_HINT_TEMPLATE, {
+      losses: String(consecutiveCollisionLosses),
     }));
   }
 
@@ -117,6 +126,7 @@ export function buildNegotiationInput(
   sessionId: string,
   iterationId: number,
   abortSignal?: AbortSignal,
+  consecutiveCollisionLosses?: number,
 ): ModelCallInput {
   const systemPrompt = render(NEGOTIATION_SYSTEM_TEMPLATE, {
     agentName: candidate.agentName,
@@ -128,6 +138,7 @@ export function buildNegotiationInput(
     activeCandidates,
     previousRounds,
     projectedHistory,
+    consecutiveCollisionLosses,
   );
 
   return {
