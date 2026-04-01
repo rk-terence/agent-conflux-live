@@ -147,7 +147,7 @@ export class DiscussionLogger {
     this.appendLog("");
   }
 
-  logResponse(output: ModelCallOutput, normalized: NormalizedResult): void {
+  logResponse(iterationId: number, output: ModelCallOutput, normalized: NormalizedResult): void {
     const now = ts();
     const model = this.agentModelMap[output.agentId] ?? "unknown";
     const normType = normalized.output.type;
@@ -156,7 +156,7 @@ export class DiscussionLogger {
     this.appendJsonl({
       type: "response",
       timestamp: now,
-      iterationId: 0, // will be set by caller context
+      iterationId,
       agentId: output.agentId,
       rawText: output.text,
       finishReason: output.finishReason,

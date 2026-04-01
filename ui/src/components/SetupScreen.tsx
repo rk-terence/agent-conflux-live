@@ -9,7 +9,7 @@ type PresetKey = 'budget' | 'premium'
 
 const PRESETS: Record<PresetKey, { label: string; description: string; agents: readonly PresetAgent[] }> = {
   budget:  { label: 'Budget',  description: 'PAYG 友好 — DeepSeek, Gemini Flash, Qwen', agents: PRESET_BUDGET },
-  premium: { label: 'Premium', description: '订阅推荐 — DeepSeek v3.2, Gemini Flash, Qwen3 Max 等',      agents: PRESET_PREMIUM },
+  premium: { label: 'Premium', description: '订阅推荐 — DeepSeek v3.2, Gemini 2.5 Pro, Qwen3 Max',      agents: PRESET_PREMIUM },
 }
 
 const DEMO_AGENTS: readonly PresetAgent[] = [

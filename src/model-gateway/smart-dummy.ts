@@ -2,8 +2,8 @@ import type { ModelGateway, ModelCallInput, ModelCallOutput } from "./types.js";
 
 /**
  * A dummy gateway that simulates realistic discussion behavior.
- * - In reaction mode: randomly speaks (~30%) or stays silent (~70%)
- * - In continuation mode: continues for 1-3 sentences then stops
+ * - In reaction mode: randomly speaks or stays silent based on personality profile
+ * - Detects negotiation prompts and responds with personality-driven insist/yield
  * - Produces varied Chinese text to make the discussion feel alive
  */
 
@@ -52,51 +52,12 @@ const SAMPLE_REACTIONS: Record<string, string[]> = {
   ],
 };
 
-const CONTINUATIONS: Record<string, string[]> = {
-  claude: [
-    "而且从更深层的角度看，这不仅仅是技术问题。",
-    "所以我认为关键在于我们如何定义边界。",
-    "这也是为什么跨学科的视角如此重要。",
-  ],
-  gpt4o: [
-    "进一步说，这个推论会导致几个有趣的结论。",
-    "我们可以用反证法来验证这个假设。",
-    "最终这个问题可能没有唯一的答案。",
-  ],
-  gemini: [
-    "如果把时间维度也考虑进去，情况更加复杂。",
-    "所以说，观察者本身就是系统的一部分。",
-    "这也验证了我之前提到的那个类比。",
-  ],
-  deepseek: [
-    "从这个模型出发，我们可以推导出几个结论。",
-    "当然，这个分析也有它的局限性。",
-    "数据表明这种模式是普遍存在的。",
-  ],
-  qwen: [
-    "在东方思想中，这被称为'不二'。",
-    "所以也许答案不在于选择，而在于超越选择。",
-    "这恰好印证了辩证法的核心思想。",
-  ],
-  llama: [
-    "在实际部署中我们见过类似的情况。",
-    "这需要更多的实验来验证。",
-    "但不管怎样，透明度是第一位的。",
-  ],
-};
-
 const DEFAULT_REACTIONS = [
   "这是一个值得深入探讨的问题。",
   "我有不同的看法。",
   "让我想想这个问题。",
   "我基本同意，但有补充。",
   "这个角度很新颖。",
-];
-
-const DEFAULT_CONTINUATIONS = [
-  "所以总的来说，这个问题值得继续讨论。",
-  "当然，以上只是我的个人观点。",
-  "希望大家也能分享自己的想法。",
 ];
 
 /**
@@ -111,16 +72,23 @@ type Personality = {
 };
 
 const PERSONALITIES: Record<string, Personality> = {
-  deepseek: { speakChance: 0.5, insistChance: 0.3 },  // moderate speaker, tends to yield
-  gemini:   { speakChance: 0.7, insistChance: 0.7 },   // eager speaker, assertive
-  qwen:     { speakChance: 0.6, insistChance: 0.5 },   // fairly active, balanced
+  deepseek: { speakChance: 0.7, insistChance: 0.8 },  // assertive, almost never yields (matches real API observation)
+  gemini:   { speakChance: 0.5, insistChance: 0.25 },  // polite, tends to yield quickly
+  qwen:     { speakChance: 0.6, insistChance: 0.5 },   // balanced
 };
 
 const DEFAULT_PERSONALITY: Personality = { speakChance: 0.4, insistChance: 0.4 };
 
 export class SmartDummyGateway implements ModelGateway {
-  private maxContinuations: Map<string, number> = new Map();
-  private continuationCount: Map<string, number> = new Map();
+  private readonly speakChanceOverride: number | undefined;
+
+  /**
+   * @param speakChanceOverride If provided, overrides each personality's speakChance.
+   *   Useful for tests or demos that want a specific activity level.
+   */
+  constructor(speakChanceOverride?: number) {
+    this.speakChanceOverride = speakChanceOverride;
+  }
 
   async generate(input: ModelCallInput): Promise<ModelCallOutput> {
     // Small delay to simulate network
@@ -135,16 +103,13 @@ export class SmartDummyGateway implements ModelGateway {
       return this.handleNegotiation(input);
     }
 
-    if (input.mode === "continuation") {
-      return this.handleContinuation(input);
-    }
-
     return this.handleReaction(input);
   }
 
   private handleReaction(input: ModelCallInput): ModelCallOutput {
     const personality = PERSONALITIES[input.agentId] ?? DEFAULT_PERSONALITY;
-    const shouldSpeak = Math.random() < personality.speakChance;
+    const speakChance = this.speakChanceOverride ?? personality.speakChance;
+    const shouldSpeak = Math.random() < speakChance;
 
     if (!shouldSpeak) {
       return {
@@ -154,11 +119,6 @@ export class SmartDummyGateway implements ModelGateway {
       };
     }
 
-    // Start a new turn — set how many continuations this speaker will do
-    const maxCont = Math.floor(Math.random() * 3);
-    this.maxContinuations.set(input.agentId, maxCont);
-    this.continuationCount.set(input.agentId, 0);
-
     const pool = SAMPLE_REACTIONS[input.agentId] ?? DEFAULT_REACTIONS;
     const text = pool[Math.floor(Math.random() * pool.length)];
 
@@ -166,30 +126,6 @@ export class SmartDummyGateway implements ModelGateway {
       agentId: input.agentId,
       text,
       finishReason: "completed",
-    };
-  }
-
-  private handleContinuation(input: ModelCallInput): ModelCallOutput {
-    const count = this.continuationCount.get(input.agentId) ?? 0;
-    const max = this.maxContinuations.get(input.agentId) ?? 0;
-
-    if (count >= max) {
-      return {
-        agentId: input.agentId,
-        text: "",
-        finishReason: "stop_sequence",
-      };
-    }
-
-    this.continuationCount.set(input.agentId, count + 1);
-
-    const pool = CONTINUATIONS[input.agentId] ?? DEFAULT_CONTINUATIONS;
-    const text = pool[Math.floor(Math.random() * pool.length)];
-
-    return {
-      agentId: input.agentId,
-      text,
-      finishReason: "stop_sequence",
     };
   }
 

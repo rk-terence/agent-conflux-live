@@ -21,25 +21,11 @@ export type IterationDebugInfo = {
   readonly negotiation?: NegotiationOutcome;
 };
 
-export type EngineIterationSuccess = {
-  readonly ok: true;
+export type EngineIterationResult = {
   readonly nextState: SessionState;
   readonly events: readonly DomainEvent[];
   readonly debug: IterationDebugInfo;
 };
-
-export type EngineIterationFailure = {
-  readonly ok: false;
-  readonly errors: readonly EngineAgentError[];
-  readonly debug: IterationDebugInfo;
-};
-
-export type EngineAgentError = {
-  readonly agentId: string;
-  readonly message: string;
-};
-
-export type EngineIterationResult = EngineIterationSuccess | EngineIterationFailure;
 
 export class EngineFatalError extends Error {
   readonly debug: IterationDebugInfo | null;
@@ -76,7 +62,7 @@ export async function runIteration(
   );
 
   // Execute all model calls concurrently
-  const rawOutputs: ModelCallOutput[] = await Promise.all(
+  let rawOutputs: ModelCallOutput[] = await Promise.all(
     callInputs.map(input =>
       gateway.generate(input).catch((err: unknown): ModelCallOutput => ({
         agentId: input.agentId,
@@ -103,7 +89,8 @@ export async function runIteration(
     ];
   }
 
-  // Retry failed agents individually (keep successful results)
+  // Retry failed agents individually (keep successful results).
+  // Skip retry when ALL agents failed — likely a provider-wide outage.
   const errorAgentIds = normalizedResults
     .filter(r => r.output.type === "error")
     .map(r => r.agentId);
@@ -125,8 +112,12 @@ export async function runIteration(
     );
 
     const retryMap = new Map(retryNormalized.map(r => [r.agentId, r]));
+    const retryOutputMap = new Map(retryOutputs.map(o => [o.agentId, o]));
     normalizedResults = normalizedResults.map(r =>
       retryMap.has(r.agentId) ? retryMap.get(r.agentId)! : r,
+    );
+    rawOutputs = rawOutputs.map(o =>
+      retryOutputMap.has(o.agentId) ? retryOutputMap.get(o.agentId)! : o,
     );
   }
 
@@ -249,7 +240,6 @@ export async function runIteration(
   }
 
   return {
-    ok: true,
     nextState,
     events,
     debug: { ...buildDebug(), negotiation },

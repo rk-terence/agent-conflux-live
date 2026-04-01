@@ -54,7 +54,7 @@ npx tsx src/cli/run.ts --topic "AI 会取代人类吗？"
 # 离线测试（无需 API key）
 npx tsx src/cli/run.ts --gateway smart-dummy
 
-# 启动 UI
+# 启动 UI（实验性，已知问题较多，建议优先使用 CLI）
 cd ui && pnpm dev
 ```
 
@@ -77,7 +77,7 @@ npx tsx src/cli/run.ts --duration 120      # 设置讨论时长
 
 1. 注册 [ZenMux](https://zenmux.ai) 获取 API key
 2. 创建 `.env` 文件：`ZENMUX_API_KEY=your-key`
-3. `npx tsx src/cli/run.ts`（CLI）或启动 UI 选择 ZenMux 模式
+3. `npx tsx src/cli/run.ts`（推荐 CLI 方式运行）
 
 ## 项目结构
 
@@ -93,7 +93,7 @@ src/                          # 框架无关的核心引擎
   runner/                     # 讨论循环驱动
   cli/                        # CLI 运行器 + 日志记录
 
-ui/                           # React 应用（独立 pnpm 项目）
+ui/                           # React 应用（实验性，已知问题待修，独立 pnpm 项目）
 ```
 
 ## 当前状态

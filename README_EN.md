@@ -54,7 +54,7 @@ npx tsx src/cli/run.ts --topic "Will AI replace human jobs?"
 # Offline testing (no API key needed)
 npx tsx src/cli/run.ts --gateway smart-dummy
 
-# Start UI
+# Start UI (experimental, known issues — CLI recommended)
 cd ui && pnpm dev
 ```
 
@@ -77,7 +77,7 @@ npx tsx src/cli/run.ts --duration 120      # set discussion duration
 
 1. Sign up at [ZenMux](https://zenmux.ai) to get an API key
 2. Create a `.env` file: `ZENMUX_API_KEY=your-key`
-3. `npx tsx src/cli/run.ts` (CLI) or start the UI and select ZenMux mode
+3. `npx tsx src/cli/run.ts` (CLI recommended)
 
 ## Project Structure
 
@@ -93,7 +93,7 @@ src/                          # Framework-agnostic core engine
   runner/                     # Discussion loop driver
   cli/                        # CLI runner + logging
 
-ui/                           # React application (separate pnpm project)
+ui/                           # React application (experimental, known issues pending, separate pnpm project)
 ```
 
 ## Current Status

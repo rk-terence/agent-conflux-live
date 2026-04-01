@@ -192,7 +192,7 @@ function printEvent(e: import("../domain/types.js").DomainEvent): void {
 // ---------------------------------------------------------------------------
 
 let currentState: SessionState | null = null;
-let iterationForEvents = 0;
+let preIterationState: SessionState | null = null;
 
 const config: DiscussionConfig = {
   sessionId,
@@ -226,28 +226,32 @@ function printNegotiation(neg: IterationDebugInfo["negotiation"]): void {
 
 const callbacks: DiscussionCallbacks = {
   onStateChange(state: SessionState) {
+    preIterationState = currentState;
     currentState = state;
   },
 
   onEvents(events) {
-    // Buffer events — they'll be flushed in correct order by onDebug
+    // Buffer events — they'll be flushed (and logged) in correct order by onDebug
     pendingEvents.push(...events);
-    logger.logEvents(iterationForEvents, events);
   },
 
   onDebug(debug: IterationDebugInfo) {
-    iterationForEvents = debug.iterationId;
-
-    // Log to file
-    if (currentState) {
-      logger.logIterationStart(debug.iterationId, currentState);
+    // Log to file — all logging happens here so iterationId is always correct.
+    // Use preIterationState (captured before onStateChange updated currentState)
+    // so iteration_start reflects the state *before* this iteration ran.
+    if (preIterationState) {
+      logger.logIterationStart(debug.iterationId, preIterationState);
     }
     for (let i = 0; i < debug.callInputs.length; i++) {
       logger.logPrompt(debug.callInputs[i]);
-      logger.logResponse(debug.rawOutputs[i], debug.normalizedResults[i]);
+      logger.logResponse(debug.iterationId, debug.rawOutputs[i], debug.normalizedResults[i]);
     }
     if (debug.negotiation) {
       logger.logNegotiation(debug.iterationId, debug.negotiation);
+    }
+    // Log buffered events with correct iterationId
+    if (pendingEvents.length > 0) {
+      logger.logEvents(debug.iterationId, pendingEvents);
     }
     if (currentState) {
       logger.logIterationEnd(debug, currentState);
@@ -278,14 +282,8 @@ const callbacks: DiscussionCallbacks = {
   },
 
   onError(error) {
-    if (error.type === "iteration_failure") {
-      const msgs = error.failure.errors.map(e => `${e.agentId}: ${e.message}`).join("; ");
-      console.error(`\n  ⚠ Iteration failure: ${msgs}`);
-      logger.logError("iteration_failure", error.failure.errors);
-    } else {
-      console.error(`\n  ⚠ Fatal error: ${error.message}`);
-      logger.logError("fatal", { message: error.message });
-    }
+    console.error(`\n  ⚠ Fatal error: ${error.message}`);
+    logger.logError("fatal", { message: error.message });
   },
 
   onEnd(state: SessionState) {

@@ -91,7 +91,7 @@ Responsibilities:
 - skip the last speaker (they sit out one round)
 - build reaction-mode call inputs for active participants
 - execute all model calls concurrently
-- retry failed agents individually (keep successful results)
+- retry failed agents individually when at least one succeeded (skip retry on total failure)
 - convert persistent errors to silence
 - deduplicate verbatim repeats across the entire session
 - normalize all responses
@@ -134,7 +134,7 @@ The `prompting` module converts projected history into gateway-ready call inputs
 Responsibilities:
 
 - provide the shared system prompt (with line-break-separated rules)
-- build reaction-mode inputs (the only mode now)
+- build reaction-mode inputs
 - append collision context when consecutive collisions have occurred
 - define token limits (REACTION_MAX_TOKENS = 300)
 
@@ -151,10 +151,10 @@ Key system prompt rules:
 
 The `model-gateway` module is the only abstraction the engine uses to call models.
 
-Four implementations:
+Three implementations:
 
 - `DummyGateway`: fully controllable via a response function, used in unit tests.
-- `SmartDummyGateway`: simulates realistic discussion with personality profiles (speak chance, insist chance per agent). Detects negotiation prompts and responds with personality-driven decisions. Social pressure increases yield probability in later rounds.
+- `SmartDummyGateway`: simulates realistic discussion with personality profiles that mirror real API observations (DeepSeek assertive, Gemini polite, Qwen balanced). Detects negotiation prompts and responds with personality-driven decisions. Social pressure increases yield probability in later rounds. Accepts optional `speakChanceOverride` to control activity level.
 - `ZenMuxGateway`: real provider adapter using ZenMux aggregation platform (OpenAI-compatible protocol). Returns full model responses (no sentence extraction). Supports per-model thinking configuration (10x max_tokens for thinking models). Error responses are truncated to status code + message.
 
 Preset configurations:
@@ -205,8 +205,8 @@ Features:
 Error boundaries:
 
 - **Domain layer**: `AgentOutput` only allows `speech | silence`. No `error` variant. Reducer never receives errors.
-- **Engine layer**: catches all gateway rejections. Retries failed agents once (keeps successful responses). Converts persistent errors to silence. Always returns `{ ok: true }` — the discussion proceeds regardless of individual agent failures.
-- **Runner layer**: no longer handles `{ ok: false }` (engine always succeeds). Fatal errors (reducer throws) are caught and terminate the discussion.
+- **Engine layer**: catches all gateway rejections. Retries failed agents once **if at least one agent succeeded** (keeps successful responses). When all agents fail simultaneously, no retry is attempted — this likely indicates a provider-wide outage where retrying would be futile. All errors are converted to silence. The engine always returns a result — the discussion proceeds regardless of individual agent failures.
+- **Runner layer**: receives engine results directly (no failure variant). Fatal errors (reducer throws) are caught and terminate the discussion.
 
 ## Collision Virtual Time
 
@@ -222,7 +222,7 @@ One iteration executes in the following order:
 2. Identify last speaker — they sit out this round.
 3. Build reaction-mode call inputs for remaining participants.
 4. Execute all model calls concurrently.
-5. Retry any failed agents individually.
+5. Retry any failed agents individually (only if at least one succeeded; skip on total failure).
 6. Convert remaining errors to silence.
 7. Normalize and deduplicate all responses.
 8. Commit through the domain reducer.
@@ -246,7 +246,7 @@ src/                          # Framework-agnostic core (pnpm root)
   runner/                     # Discussion loop driver
   cli/                        # CLI runner with logging
 
-ui/                           # React application (separate pnpm project)
+ui/                           # React application (EXPERIMENTAL — known issues, see below)
   src/
     hooks/useDiscussion.ts    # React hook bridging runner ↔ components
     components/               # Setup, discussion, roundtable, list views
@@ -278,6 +278,11 @@ The core engine is fully implemented and tested (66 tests). The simplified archi
 
 Areas for future work:
 
+- **UI overhaul**: The current React UI is experimental and has several known issues:
+  - Speaking/listening indicators are effectively dead (no `speaking` phase, `currentTurn` always null)
+  - ZenMux gateway missing `thinkingAgents`, so thinking models lose 10x token compensation
+  - Session fencing missing — rapid restart can cause old session events to pollute new session
+  - API key handled in browser without backend proxy (only suitable for local use)
 - Interruption / speech collision (currently disabled for simplicity)
 - Prompt tuning based on log analysis
 - Persistence and session replay

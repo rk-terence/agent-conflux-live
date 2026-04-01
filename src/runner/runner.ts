@@ -2,7 +2,7 @@ import type { SessionState, DomainEvent, Participant } from "../domain/types.js"
 import type { ModelGateway } from "../model-gateway/types.js";
 import { createSession, endDiscussion } from "../domain/session.js";
 import { runIteration, EngineFatalError } from "../engine/engine.js";
-import type { EngineIterationFailure, IterationDebugInfo } from "../engine/engine.js";
+import type { IterationDebugInfo } from "../engine/engine.js";
 
 export type DiscussionConfig = {
   sessionId: string;
@@ -16,8 +16,7 @@ export type DiscussionConfig = {
 };
 
 export type DiscussionError =
-  | { type: "iteration_failure"; failure: EngineIterationFailure }
-  | { type: "fatal"; error: unknown; message: string; debug: IterationDebugInfo | null };
+  { type: "fatal"; error: unknown; message: string; debug: IterationDebugInfo | null };
 
 export type DiscussionCallbacks = {
   onStateChange: (state: SessionState) => void;
@@ -82,13 +81,6 @@ export function startDiscussion(
         const result = await runIteration(state, gateway, abortController.signal);
 
         if (stopped) break;
-
-        if (!result.ok) {
-          callbacks.onError?.({ type: "iteration_failure", failure: result });
-          callbacks.onDebug?.(result.debug);
-          await delay(delayMs * 3);
-          continue;
-        }
 
         state = result.nextState;
         currentState = state;

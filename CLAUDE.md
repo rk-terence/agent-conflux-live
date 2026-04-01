@@ -1,5 +1,6 @@
 # Docs
 
+- Public-facing README file: README.md (Chinese) and README_EN.md (English)
 - Architecture and system design: docs/ARCHITECTURE.md
 - Provider integration notes and model behavior: docs/PROVIDER.md
 - Roadmap and next steps: docs/ROADMAP.md
@@ -16,7 +17,6 @@
 
 ```bash
 pnpm test                    # run core tests (66 tests)
-cd ui && pnpm dev            # start UI dev server (localhost:5173)
 
 # CLI runner (reads .env for ZENMUX_API_KEY)
 npx tsx src/cli/run.ts                              # real API, budget preset
@@ -25,9 +25,10 @@ npx tsx src/cli/run.ts --preset premium --duration 120
 npx tsx src/cli/run.ts --help                        # all options
 ```
 
+Before each commit, make sure all the docs are up-to-date with the code.
+
 # Key Design Decisions
 
-- **No continuation mode** — models produce their complete speech in one call (reaction mode only, max_tokens=300)
 - **No speech collision / interruption** — only gap collisions exist; when someone is speaking, others wait
 - **No "speaking" phase** — reducer stays in `turn_gap`; single speaker commits text + turn_ended atomically
 - **Last speaker sits out** — the agent who just spoke is skipped in the next iteration, giving others a chance

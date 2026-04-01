@@ -1,4 +1,4 @@
-export type CallMode = "reaction" | "continuation";
+export type CallMode = "reaction";
 
 export type ModelCallInput = {
   readonly sessionId: string;

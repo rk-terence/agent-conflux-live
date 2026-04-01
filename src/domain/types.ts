@@ -7,7 +7,6 @@ export type SessionId = string;
 
 export type SessionPhase =
   | "idle"       // created but not started
-  | "speaking"   // one agent holds the floor
   | "turn_gap"   // no current speaker, awaiting next
   | "ended";     // discussion terminated
 

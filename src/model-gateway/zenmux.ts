@@ -237,10 +237,6 @@ export class ZenMuxGateway implements ModelGateway {
       { role: "user", content: input.historyText },
     ];
 
-    if (input.mode === "continuation" && input.assistantPrefill) {
-      msgs.push({ role: "assistant", content: input.assistantPrefill });
-    }
-
     return msgs;
   }
 }

@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { runIteration } from "../engine.js";
-import type { EngineIterationSuccess, EngineIterationFailure } from "../engine.js";
 import { createSession } from "../../domain/session.js";
 import { DummyGateway } from "../../model-gateway/dummy.js";
 import type { ModelCallInput } from "../../model-gateway/types.js";
@@ -22,18 +21,6 @@ function initSession(): SessionState {
   }).nextState;
 }
 
-function expectSuccess(result: Awaited<ReturnType<typeof runIteration>>): asserts result is EngineIterationSuccess {
-  if (!result.ok) {
-    throw new Error(`Expected success but got failure: ${result.errors.map(e => e.message).join("; ")}`);
-  }
-}
-
-function expectFailure(result: Awaited<ReturnType<typeof runIteration>>): asserts result is EngineIterationFailure {
-  if (result.ok) {
-    throw new Error("Expected failure but got success");
-  }
-}
-
 // --- Tests ---
 
 describe("runIteration", () => {
@@ -48,7 +35,6 @@ describe("runIteration", () => {
     const gw = new DummyGateway(() => "[silence]");
 
     const result = await runIteration(state, gw);
-    expectSuccess(result);
 
     expect(gw.calls).toHaveLength(3);
     expect(gw.calls.map(c => c.agentId).sort()).toEqual(["claude", "deepseek", "gpt"]);
@@ -60,7 +46,6 @@ describe("runIteration", () => {
     const gw = new DummyGateway(() => "[silence]");
 
     const result = await runIteration(state, gw);
-    expectSuccess(result);
 
     expect(result.nextState.phase).toBe("turn_gap");
     expect(result.nextState.silenceState.consecutiveCount).toBe(1);
@@ -75,7 +60,6 @@ describe("runIteration", () => {
     );
 
     const result = await runIteration(state, gw);
-    expectSuccess(result);
 
     expect(result.nextState.phase).toBe("turn_gap");
     expect(result.nextState.currentTurn).toBeNull();
@@ -90,7 +74,6 @@ describe("runIteration", () => {
     );
 
     const result = await runIteration(state, gw);
-    expectSuccess(result);
 
     expect(result.nextState.phase).toBe("turn_gap");
     expect(result.events[0]).toMatchObject({ kind: "collision", during: "gap" });
@@ -106,7 +89,7 @@ describe("runIteration", () => {
   });
 
   describe("error handling", () => {
-    it("treats all-error as all-silence (no retry when everyone fails)", async () => {
+    it("treats all-error as all-silence (skip retry on total failure — likely provider outage)", async () => {
       const state = initSession();
       const gw = new DummyGateway(() => "");
       gw.generate = async (input) => ({
@@ -117,7 +100,7 @@ describe("runIteration", () => {
 
       const result = await runIteration(state, gw);
       // All errors → converted to silence → iteration succeeds
-      expectSuccess(result);
+
       expect(result.nextState.silenceState.consecutiveCount).toBe(1);
     });
 
@@ -136,7 +119,7 @@ describe("runIteration", () => {
       };
 
       const result = await runIteration(state, gw);
-      expectSuccess(result);
+
       // Claude was called twice (initial + retry), others once each
       expect(claudeCalls).toBe(2);
     });
@@ -151,7 +134,7 @@ describe("runIteration", () => {
 
       const result = await runIteration(state, gw);
       // Claude failed twice but was converted to silence
-      expectSuccess(result);
+
       expect(result.nextState.silenceState.consecutiveCount).toBe(1);
     });
 
@@ -165,7 +148,7 @@ describe("runIteration", () => {
       });
 
       const result = await runIteration(state, gw);
-      expectSuccess(result);
+
       // max_tokens is treated as speech now, so one agent spoke
       expect(result.events[0]).toMatchObject({ kind: "sentence_committed", speakerId: "claude" });
     });
@@ -176,7 +159,7 @@ describe("runIteration", () => {
     const gw = new DummyGateway(() => "[silence]");
 
     const result = await runIteration(state, gw);
-    expectSuccess(result);
+
 
     expect(result.debug.iterationId).toBe(0);
     expect(result.debug.callInputs).toHaveLength(3);
@@ -190,11 +173,11 @@ describe("runIteration", () => {
     const gw = new DummyGateway(() => "[silence]");
 
     const r1 = await runIteration(state, gw);
-    expectSuccess(r1);
+
     expect(r1.debug.iterationId).toBe(0);
 
     const r2 = await runIteration(r1.nextState, gw);
-    expectSuccess(r2);
+
     expect(r2.debug.iterationId).toBe(1);
   });
 });
