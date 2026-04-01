@@ -40,7 +40,7 @@ describe("buildReactionInput", () => {
     expect(input.sessionId).toBe("s1");
     expect(input.iterationId).toBe(3);
     expect(input.agentId).toBe("claude");
-    expect(input.maxTokens).toBe(400);
+    expect(input.maxTokens).toBe(250);
     expect(input.userPromptText).toBe(
       "- [1.0s] **GPT-4o**：\n  > 我先说一句。\n\n---\n请用 JSON 格式回复。",
     );
@@ -92,6 +92,45 @@ describe("buildReactionInput", () => {
       ].join("\n"),
     });
     expect(input).toMatchSnapshot();
+  });
+
+  it("includes mention hint when @mentioned after last speech", () => {
+    const input = buildReactionInput({
+      sessionId: "s1",
+      iterationId: 5,
+      agentId: "claude",
+      agentName: "Claude",
+      allNames,
+      topic,
+      projectedHistory: "- [1.0s] **你**：\n  > 我先说。\n- [2.0s] **GPT-4o**：\n  > @Claude 你怎么看？",
+    });
+    expect(input.userPromptText).toContain("有人在讨论中提到了你（@Claude）");
+  });
+
+  it("does not include mention hint when @mention is before last speech", () => {
+    const input = buildReactionInput({
+      sessionId: "s1",
+      iterationId: 5,
+      agentId: "claude",
+      agentName: "Claude",
+      allNames,
+      topic,
+      projectedHistory: "- [1.0s] **GPT-4o**：\n  > @Claude 你先说。\n- [2.0s] **你**：\n  > 好的。",
+    });
+    expect(input.userPromptText).not.toContain("有人在讨论中提到了你");
+  });
+
+  it("does not include mention hint when @mention is before collision-winner speech", () => {
+    const input = buildReactionInput({
+      sessionId: "s1",
+      iterationId: 5,
+      agentId: "claude",
+      agentName: "Claude",
+      allNames,
+      topic,
+      projectedHistory: "- [1.0s] **GPT-4o**：\n  > @Claude 你怎么看？\n- [2.0s] 你和 GPT-4o 同时开口了，经过协商你获得了发言权\n  你说：\n  > 我回应了。",
+    });
+    expect(input.userPromptText).not.toContain("有人在讨论中提到了你");
   });
 
   it("snapshot: with collision context", () => {

@@ -288,6 +288,8 @@ function formatEvent(e: DomainEvent): string {
       return `turn_ended — ${e.speakerId} (${e.totalSentences} sentences, ${e.totalDuration.toFixed(1)}s)`;
     case "silence_extended":
       return `silence_extended — ${e.intervalSeconds}s (cumulative: ${e.cumulativeSeconds}s)`;
+    case "collision_resolved":
+      return `collision_resolved — winner=${e.winnerId}, tier ${e.tier}, ${e.negotiationRounds.length} rounds`;
     case "discussion_ended":
       return `discussion_ended — reason=${e.reason}`;
   }

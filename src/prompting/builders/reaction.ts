@@ -8,7 +8,9 @@ import {
   REACTION_TURN_PROMPT,
   COLLISION_NOTICE_TEMPLATE,
   FREQUENT_COLLIDERS_TEMPLATE,
+  REACTION_MENTION_HINT_TEMPLATE,
 } from "../templates/reaction.js";
+import { wasMentionedAfterLastSpeech } from "../mention-utils.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,8 +65,13 @@ export function buildSystemPrompt(
 // Turn directive
 // ---------------------------------------------------------------------------
 
-function buildTurnDirective(collisionContext?: CollisionContext): string {
+function buildTurnDirective(collisionContext?: CollisionContext, mentionHint?: string): string {
   const parts: string[] = [];
+
+  if (mentionHint) {
+    parts.push(mentionHint);
+  }
+
   parts.push(`---\n${REACTION_TURN_PROMPT}`);
 
   if (collisionContext && collisionContext.streak > 0) {
@@ -91,7 +98,10 @@ function buildCollisionNotice(ctx: CollisionContext): string {
 
 export function buildReactionInput(params: ReactionParams): ModelCallInput {
   const systemPrompt = buildSystemPrompt(params.agentName, params.allNames, params.topic);
-  const turnDirective = buildTurnDirective(params.collisionContext);
+  const mentionHint = wasMentionedAfterLastSpeech(params.projectedHistory, params.agentName)
+    ? render(REACTION_MENTION_HINT_TEMPLATE, { agentName: params.agentName })
+    : undefined;
+  const turnDirective = buildTurnDirective(params.collisionContext, mentionHint);
 
   return {
     sessionId: params.sessionId,

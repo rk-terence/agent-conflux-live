@@ -88,6 +88,23 @@ describe("buildNegotiationInput", () => {
     expect(input.userPromptText).toContain("点名向你（@Claude）提问");
   });
 
+  it("does not include mention hint when mention is before collision-winner speech", () => {
+    const history = "- [1.0s] **GPT-4o**：\n  > @Claude 你怎么看？\n- [2.0s] 你和 GPT-4o 同时开口了，经过协商你获得了发言权\n  你说：\n  > 我回应了。";
+    const input = buildNegotiationInput(
+      1,
+      candidates[0],
+      candidates,
+      [],
+      candidates,
+      allNames,
+      topic,
+      history,
+      "s1",
+      5,
+    );
+    expect(input.userPromptText).not.toContain("点名向你");
+  });
+
   it("does not include mention hint when mention is before last speech", () => {
     const history = "- [1.0s] **GPT-4o**：\n  > @Claude 你先说。\n- [2.0s] **你**：\n  > 好的我说了。";
     const input = buildNegotiationInput(

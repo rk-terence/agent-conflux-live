@@ -117,7 +117,7 @@ Four-tier resolution:
 
 Key behaviors:
 
-- **@mention awareness**: if an agent was recently @-mentioned (after their last speech), the negotiation prompt hints they have stronger reason to insist
+- **@mention awareness**: if an agent was recently @-mentioned (after their last speech), both the reaction turn directive (soft nudge to respond) and the negotiation prompt (stronger reason to insist) include a mention hint
 - **Full discussion context**: each agent sees their perspective-specific history in negotiation and voting prompts
 - **All rounds and votes logged**: every tier's decisions are recorded both in debug output and in `CollisionResolvedEvent` domain events
 - **Guaranteed convergence**: Tier 4 is an unconditional termination point — collisions always resolve
@@ -204,10 +204,11 @@ Structure:
 - `prompting/templates/negotiation.ts` — pure constant template for the negotiation system prompt, collision description, mention hint, round summaries, and deadlock notice. Instructs models to output JSON insistence level.
 - `prompting/templates/voting.ts` — pure constant template for the bystander voting system prompt. Instructs models to output JSON vote.
 - `prompting/render.ts` — strict slot renderer: replaces `{{key}}` placeholders, throws on missing variables.
-- `prompting/builders/reaction.ts` — prepares variables (agent name, other names, topic, collision context) and renders the reaction prompt via templates.
+- `prompting/builders/reaction.ts` — prepares variables (agent name, other names, topic, collision context, @mention detection) and renders the reaction prompt via templates.
 - `prompting/builders/negotiation.ts` — prepares variables (discussion history, @mention detection, round summaries, deadlock context) and renders the negotiation prompt via templates.
 - `prompting/builders/voting.ts` — prepares variables (voter, candidates, discussion history) and renders the voting prompt via templates.
-- `prompting/constants.ts` — token limits (REACTION_MAX_TOKENS = 400, NEGOTIATION_MAX_TOKENS = 30, VOTING_MAX_TOKENS = 30).
+- `prompting/mention-utils.ts` — @mention detection utility shared by reaction and negotiation builders.
+- `prompting/constants.ts` — token limits (REACTION_MAX_TOKENS = 250, NEGOTIATION_MAX_TOKENS = 30, VOTING_MAX_TOKENS = 30).
 - `prompting/builder.ts` — re-export shim for backwards compatibility.
 
 Responsibilities:

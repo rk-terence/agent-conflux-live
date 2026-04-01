@@ -57,7 +57,7 @@ The collision problem was the central challenge of this project. Key findings:
 - **Prompt-only solutions don't work**: Telling models "don't rush" or reporting collision stats has negligible effect. Models are inherently eager to speak when polled.
 - **Negotiation works well**: The insist/yield negotiation mechanism reliably converges (usually in 1-3 rounds). Models exhibit distinct "personalities" in negotiation.
 - **Last-speaker-skip is essential**: Without it, assertive models (DeepSeek) monopolize the conversation by always insisting and always being polled.
-- **@mention awareness helps**: When an agent is @-mentioned and the negotiation prompt highlights this, they're more likely to insist — preventing the situation where everyone yields when someone was directly asked.
+- **@mention awareness helps**: When an agent is @-mentioned, the reaction turn directive nudges them to respond, and the negotiation prompt highlights they have reason to insist — preventing the situation where everyone yields when someone was directly asked.
 
 ### Per-Model Negotiation Personality
 

@@ -10,6 +10,7 @@ import {
   DEADLOCK_TEMPLATE,
   NEGOTIATION_QUESTION,
 } from "../templates/negotiation.js";
+import { wasMentionedAfterLastSpeech } from "../mention-utils.js";
 
 // ---------------------------------------------------------------------------
 // Types (re-used from negotiation module)
@@ -29,21 +30,6 @@ export type NegotiationRoundSnapshot = {
     readonly insistence: "low" | "mid" | "high";
   }[];
 };
-
-// ---------------------------------------------------------------------------
-// @mention detection
-// ---------------------------------------------------------------------------
-
-function wasMentionedAfterLastSpeech(
-  projectedHistory: string,
-  agentName: string,
-): boolean {
-  const mentionTag = `@${agentName}`;
-  const lastMention = projectedHistory.lastIndexOf(mentionTag);
-  const selfTag = `**你**：`;
-  const lastSpeech = projectedHistory.lastIndexOf(selfTag);
-  return lastMention !== -1 && lastMention > lastSpeech;
-}
 
 // ---------------------------------------------------------------------------
 // Turn directive assembly

@@ -184,6 +184,8 @@ function printEvent(e: import("../domain/types.js").DomainEvent): void {
       break;
     case "discussion_started":
       break;
+    case "collision_resolved":
+      break; // displayed via printNegotiation
   }
 }
 
