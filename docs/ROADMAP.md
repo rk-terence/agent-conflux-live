@@ -1,11 +1,23 @@
 # Roadmap
 
+## Done
+
+底层清理（API 面、日志、文档对齐）已完成：
+
+- 移除 continuation mode 残留（CallMode、barrel 导出、SmartDummy/ZenMux 死分支）
+- 移除 `speaking` phase 和 `EngineIterationFailure` 死路径
+- SmartDummyGateway 构造函数接受 `speakChanceOverride`，性格与真实 API 观察对齐
+- CLI 日志修正：iterationId 不再硬编码、events 落盘时序正确、retry 后 rawOutputs 一致、iteration_start 使用迭代前 state
+- 全部失败不重试策略在代码/测试/文档中统一
+- License 对齐（MIT）、UI preset 描述修正、UI 标注为实验性
+
 ## Phase 1: Prompt 与机制优化（近期）
 
-当前讨论流程已经跑通，但模型产出质量和讨论节奏仍有优化空间。
+核心讨论流程已跑通且底层已清理干净，下一步聚焦模型产出质量和讨论节奏。
 
 - **协商机制调优**
-  - DeepSeek 几乎从不 yield，Gemini 过度谦让——研究是否需要在协商 prompt 中加入更多上下文引导
+  - 真实 API 观察：DeepSeek 几乎从不 yield，Gemini 过度谦让（SmartDummy 已对齐此行为）
+  - 研究是否需要在协商 prompt 中加入更多上下文引导来平衡
   - 协商轮数过多时（4-5 轮）的收敛效率
   - 全部让步后重试的策略是否需要调整
 
@@ -43,9 +55,15 @@
   - 打断后的发言权归属
   - 对虚拟时间的影响
 
-## Phase 3: UI 大改与结构化输出（远期）
+## Phase 3: UI 修复与升级（远期）
 
-当前 UI 是基础的文字列表。需要大幅升级以展示更丰富的讨论状态。
+当前 UI 是实验性的，存在以下已知问题需要先修复，再做功能升级：
+
+- **已知问题（修复优先）**
+  - Speaking/listening 指示器失效：架构无 `speaking` phase，`currentTurn` 始终为 null，前端状态推导无效
+  - ZenMux 接入缺少 `thinkingAgents`，thinking 模型在 UI 中失去 10x token 补偿
+  - 会话串扰：快速重启时旧 runner 的收尾事件可能污染新会话
+  - API key 在浏览器端直接持有，仅适合本地自用
 
 - **模型结构化输出**
   - 从纯文本输出升级为结构化 JSON：`{ speech: "...", emotion: "thoughtful", reaction: "nod" }`
