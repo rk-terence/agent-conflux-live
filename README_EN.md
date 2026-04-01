@@ -98,7 +98,7 @@ ui/                           # React application (experimental, known issues pe
 
 ## Current Status
 
-Core engine complete with 95 passing tests. Collision negotiation mechanism works effectively and discussions progress smoothly. The CLI tool provides full prompt/response logging for iterative optimization.
+Core engine complete with all tests passing. Collision negotiation mechanism works effectively and discussions progress smoothly. The CLI tool provides full prompt/response logging for iterative optimization.
 
 ## Docs
 

@@ -25,6 +25,8 @@ The gateway returns the model's complete response — no sentence extraction or 
 
 ## Model Presets
 
+> These are current default examples. The actual preset definitions in code are the source of truth.
+
 ### Budget (for dev/iteration)
 
 | Agent ID | Model Slug | Thinking | Notes |
@@ -75,19 +77,11 @@ Problems discovered and fixed at the normalization layer:
 - **Gemini fragments**: With thinking models, reasoning tokens consume the budget, leaving outputs like `嗯，` or `DeepSeek`. Filtered by minimum length (4 chars).
 - **Cross-turn repetition**: Both DeepSeek and Qwen repeat the same sentence across different turns when context doesn't change much. Detected by scanning all committed sentences and collision utterances in the session.
 
-## CLI Testing Workflow
+## CLI Quick Reference
 
-The CLI runner (`src/cli/run.ts`) addresses the need for rapid prompt iteration:
+See README for full CLI usage. Commonly used for provider testing:
 
 ```bash
-# Quick offline test with personality-driven dummy
-npx tsx src/cli/run.ts --gateway smart-dummy --duration 60
-
-# Real API test
-npx tsx src/cli/run.ts --duration 120
-
-# Premium models
-npx tsx src/cli/run.ts --preset premium --duration 120
+npx tsx src/cli/run.ts --gateway smart-dummy   # offline test
+npx tsx src/cli/run.ts --preset premium        # premium models
 ```
-
-Logs are written to `logs/` with full prompt/response details for post-hoc analysis.

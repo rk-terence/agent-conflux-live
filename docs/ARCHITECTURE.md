@@ -337,7 +337,7 @@ docs/
 
 ```bash
 # Core tests
-pnpm test              # run all 95 tests
+pnpm test              # run all tests
 pnpm test:watch        # watch mode
 
 # UI development
@@ -349,18 +349,3 @@ npx tsx src/cli/run.ts --gateway smart-dummy          # offline testing
 npx tsx src/cli/run.ts --duration 120                 # real API (needs .env)
 ```
 
-## Implementation Status
-
-The core engine is fully implemented and tested (95 tests). The simplified architecture (no continuation mode, no speech collision) is cleaner and produces better discussion dynamics. Collision negotiation successfully resolves multi-agent contention. The CLI runner provides detailed logging for prompt tuning and behavior analysis.
-
-Areas for future work:
-
-- **UI overhaul**: The current React UI is experimental and has several known issues:
-  - Speaking/listening indicators are effectively dead (no `speaking` phase, `currentTurn` always null)
-  - ZenMux gateway missing `thinkingAgents`, so thinking models lose 10x token compensation
-  - Session fencing missing — rapid restart can cause old session events to pollute new session
-  - API key handled in browser without backend proxy (only suitable for local use)
-- Interruption / speech collision (currently disabled for simplicity)
-- Prompt tuning based on log analysis
-- Persistence and session replay
-- Analytics and export
