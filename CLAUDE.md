@@ -34,3 +34,11 @@ This includes, but is not limited to:
 - model gateway boundaries
 
 If `docs/ARCHITECTURE.md` and this section (in `CLAUDE.md`) appear inconsistent, treat `docs/ARCHITECTURE.md` as the _source of truth_ and update this section accordingly.
+
+# Development Workflow: Claude–Codex Review Loop
+
+After completing each round of development work, follow this procedure **before** committing or pushing:
+
+1. Update `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, and `docs/PROVIDER.md` if the changes affect them.
+2. Request a Codex review of the current diff and a summary of changes (via `codex:codex-rescue` subagent or equivalent). If the reviewer is unavailable, proceed directly to step 3.
+3. Read the review feedback, implement reasonable suggestions, then commit (and push if requested). If a suggestion conflicts with `docs/ARCHITECTURE.md`, defer to ARCHITECTURE.md.
