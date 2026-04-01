@@ -35,7 +35,7 @@ describe("reduceIteration", () => {
     it("returns unchanged state when phase is ended", () => {
       const state = makeSession({ phase: "ended" });
       const result = iter(0, [
-        { agentId: "claude", output: { type: "speech", text: "你好", tokenCount: 10 } },
+        { agentId: "claude", output: { type: "speech", text: "你好", tokenCount: 10, insistence: "mid" } },
       ]);
       const { nextState, events } = reduceIteration(state, result);
       expect(nextState).toBe(state);
@@ -56,7 +56,7 @@ describe("reduceIteration", () => {
       const state = makeSession({ phase: "turn_gap" });
       const result = iter(0, [
         { agentId: "claude", output: { type: "silence" } },
-        { agentId: "gpt", output: { type: "speech", text: "我先说。", tokenCount: 50 } },
+        { agentId: "gpt", output: { type: "speech", text: "我先说。", tokenCount: 50, insistence: "mid" } },
         { agentId: "deepseek", output: { type: "silence" } },
       ]);
 
@@ -85,8 +85,8 @@ describe("reduceIteration", () => {
     it("emits gap collision when multiple agents speak", () => {
       const state = makeSession({ phase: "turn_gap" });
       const result = iter(0, [
-        { agentId: "claude", output: { type: "speech", text: "我觉得——", tokenCount: 20 } },
-        { agentId: "gpt", output: { type: "speech", text: "首先——", tokenCount: 30 } },
+        { agentId: "claude", output: { type: "speech", text: "我觉得——", tokenCount: 20, insistence: "mid" } },
+        { agentId: "gpt", output: { type: "speech", text: "首先——", tokenCount: 30, insistence: "mid" } },
         { agentId: "deepseek", output: { type: "silence" } },
       ]);
 
@@ -199,7 +199,7 @@ describe("reduceIteration", () => {
         silenceState: { consecutiveCount: 3, cumulativeSeconds: 7 },
       });
       const result = iter(0, [
-        { agentId: "claude", output: { type: "speech", text: "打破沉默。", tokenCount: 20 } },
+        { agentId: "claude", output: { type: "speech", text: "打破沉默。", tokenCount: 20, insistence: "mid" } },
         { agentId: "gpt", output: { type: "silence" } },
         { agentId: "deepseek", output: { type: "silence" } },
       ]);
@@ -214,7 +214,7 @@ describe("reduceIteration", () => {
     it("advances time by tokenCount * TOKEN_TO_SECONDS", () => {
       const state = makeSession({ phase: "turn_gap", virtualTime: 10 });
       const result = iter(0, [
-        { agentId: "claude", output: { type: "speech", text: "测试。", tokenCount: 50 } },
+        { agentId: "claude", output: { type: "speech", text: "测试。", tokenCount: 50, insistence: "mid" } },
         { agentId: "gpt", output: { type: "silence" } },
         { agentId: "deepseek", output: { type: "silence" } },
       ]);

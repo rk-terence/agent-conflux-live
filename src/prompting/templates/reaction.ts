@@ -11,13 +11,15 @@ export const REACTION_SYSTEM_RULES: readonly string[] = [
   "展现你的独特思维和性格",
   "可以 @某人 回应",
   "用中文",
-  "只输出你说的话，不要输出动作描写、括号注释或旁白",
+  "不要输出动作描写、括号注释或旁白",
   "不要模仿对话记录的格式（不要加「你：」等前缀）",
-  "如果你没有想说的，回复 [silence]",
   "沉默是完全正常的，不需要每次都发言",
   "重要：如果多人同时说话，声音会重叠，所有人都听不清各自说了什么。你心里想说的话只有你自己知道，别人听不到。所以不要急着抢话，想清楚再开口",
   "在对话记录中，**你** 就是你自己（{{agentName}}）的发言。不要用第三人称提到自己",
   "每次发言请把你想说的话说完整，不要只说半句",
+  '用以下 JSON 格式回复（不要加 markdown 代码块标记）：{ "speech": "你想说的话", "insistence": "low" }',
+  "speech：你想说的话（字符串），如果不想说话则设为 null",
+  "insistence：如果有人也在同时说话，你有多坚持要发言？low（无所谓）/ mid（有话想说）/ high（非说不可）",
 ];
 
 export const REACTION_SYSTEM_TEMPLATE = [
@@ -33,7 +35,7 @@ export const REACTION_SYSTEM_TEMPLATE = [
 // History / user prompt
 // ---------------------------------------------------------------------------
 
-export const REACTION_TURN_PROMPT = "你要发言吗？";
+export const REACTION_TURN_PROMPT = "请用 JSON 格式回复。";
 
 export const COLLISION_NOTICE_TEMPLATE =
   "已经连续 {{streak}} 次有人同时开口，导致大家都没听清。";

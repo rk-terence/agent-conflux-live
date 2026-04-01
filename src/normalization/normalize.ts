@@ -1,5 +1,5 @@
 import type { ModelCallOutput, CallMode } from "../model-gateway/types.js";
-import type { AgentOutput } from "../domain/types.js";
+import type { AgentOutput, InsistenceLevel } from "../domain/types.js";
 
 export type NormalizedError = {
   readonly type: "error";
@@ -16,7 +16,7 @@ export type NormalizedResult = {
 
 export function normalizeOutput(
   callOutput: ModelCallOutput,
-  _mode: CallMode,
+  mode: CallMode,
 ): NormalizedResult {
   const { agentId, text, finishReason } = callOutput;
 
@@ -37,16 +37,46 @@ export function normalizeOutput(
   // since models now produce full responses without sentence boundaries
   const trimmed = text.trim();
 
-  if (isSilence(trimmed)) {
-    return { agentId, output: { type: "silence" }, raw: callOutput };
-  }
-
   if (trimmed === "") {
     return { agentId, output: { type: "silence" }, raw: callOutput };
   }
 
+  if (mode === "reaction") {
+    return normalizeReaction(agentId, trimmed, callOutput);
+  }
+
+  // negotiation and voting modes are parsed by their respective modules,
+  // not by the normalization layer — return the raw text as-is for them
+  return {
+    agentId,
+    output: { type: "silence" },
+    raw: callOutput,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Reaction normalization
+// ---------------------------------------------------------------------------
+
+function normalizeReaction(
+  agentId: string,
+  trimmed: string,
+  callOutput: ModelCallOutput,
+): NormalizedResult {
+  const parsed = parseStructuredReaction(trimmed);
+
+  // Null speech or silence marker → silence
+  if (parsed.speech === null) {
+    return { agentId, output: { type: "silence" }, raw: callOutput };
+  }
+
+  const speechTrimmed = parsed.speech.trim();
+  if (speechTrimmed === "" || isSilence(speechTrimmed)) {
+    return { agentId, output: { type: "silence" }, raw: callOutput };
+  }
+
   // Clean: strip fabricated history, speaker prefixes, parenthetical actions
-  const cleaned = cleanSpeechText(trimmed);
+  const cleaned = cleanSpeechText(speechTrimmed);
   if (cleaned === "" || isSilence(cleaned)) {
     return { agentId, output: { type: "silence" }, raw: callOutput };
   }
@@ -57,10 +87,85 @@ export function normalizeOutput(
       type: "speech",
       text: cleaned,
       tokenCount: estimateTokenCount(cleaned),
+      insistence: parsed.insistence,
     },
     raw: callOutput,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Structured output parsing
+// ---------------------------------------------------------------------------
+
+export type ParsedReactionOutput = {
+  readonly speech: string | null;
+  readonly insistence: InsistenceLevel;
+};
+
+/**
+ * Parse structured JSON reaction output from the model.
+ * Falls back to treating the entire text as speech with default "mid" insistence
+ * when the model ignores the structured output instruction.
+ */
+export function parseStructuredReaction(rawText: string): ParsedReactionOutput {
+  const json = extractJson(rawText);
+  if (json !== null && typeof json === "object" && !Array.isArray(json)) {
+    const obj = json as Record<string, unknown>;
+    const speech = obj.speech === null ? null
+      : (typeof obj.speech === "string" ? obj.speech : null);
+    const insistence = isInsistenceLevel(obj.insistence) ? obj.insistence : "mid";
+
+    // If the model set speech to a non-null, non-string value, treat as fallback
+    if (obj.speech !== null && typeof obj.speech !== "string") {
+      return { speech: rawText, insistence: "mid" };
+    }
+
+    return { speech, insistence };
+  }
+
+  // Fallback: check for old-style [silence] marker
+  if (isSilence(rawText)) {
+    return { speech: null, insistence: "low" };
+  }
+
+  // Fallback: treat entire text as speech with default insistence
+  return { speech: rawText, insistence: "mid" };
+}
+
+// ---------------------------------------------------------------------------
+// JSON extraction
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a JSON object from raw LLM text.
+ * Handles common wrapping patterns: markdown code fences, preamble text.
+ */
+export function extractJson(text: string): unknown | null {
+  // Strip markdown code fences if present
+  const fenceMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+  const candidate = fenceMatch ? fenceMatch[1].trim() : text;
+
+  // Find outermost { ... }
+  const firstBrace = candidate.indexOf("{");
+  const lastBrace = candidate.lastIndexOf("}");
+  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(candidate.slice(firstBrace, lastBrace + 1));
+  } catch {
+    return null;
+  }
+}
+
+export function isInsistenceLevel(value: unknown): value is InsistenceLevel {
+  return value === "low" || value === "mid" || value === "high";
+}
+
+// ---------------------------------------------------------------------------
+// Speech classification helpers (unchanged from previous implementation)
+// ---------------------------------------------------------------------------
 
 function isSilence(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, "");
@@ -91,15 +196,6 @@ function cleanSpeechText(text: string): string {
 
 /**
  * Strip speaker prefixes that models sometimes echo from history projection.
- *
- * Models may mimic the history format in their output.
- * The prefix is not actual speech — strip it so only the spoken words remain.
- * Matches patterns like:
- * - Old format: "[你]: ", "[Gemini]: ", "[GPT-4o]:"
- * - Current format: "**你**：", "**GPT-4o**：", "**Gemini 2.5 Pro**："
- *
- * Agent names may contain word chars, CJK, hyphens, dots, and spaces (e.g. "GPT-4o",
- * "Claude-3.5", "Gemini 2.5 Pro"), so the character class must be broad enough.
  */
 function stripSpeakerPrefix(text: string): string {
   return text
@@ -110,25 +206,6 @@ function stripSpeakerPrefix(text: string): string {
 
 /**
  * Strip parenthetical stage directions / action descriptions from model output.
- *
- * Why this exists:
- * Some models (notably DeepSeek) respond with bracketed "actions" like
- * "（等了一秒，确认安静后）" or "（转向 Qwen）" in addition to actual speech.
- * These violate the roundtable protocol in two ways:
- *   1. The system explicitly tells models to output only spoken words, no
- *      action descriptions or narration. Parentheticals bypass this instruction.
- *   2. Actions like "等了3秒" imply temporal capabilities (waiting, pausing)
- *      that don't exist in our system — virtual time is managed by the engine,
- *      not by models. Letting these through would create false impressions
- *      in other agents' history projections.
- *
- * By stripping at the normalization layer (before the reducer), we ensure:
- *   - Domain events never contain non-speech content
- *   - Other agents' projected history stays clean
- *   - Pure-parenthetical outputs are correctly classified as silence
- *     rather than generating empty speech events
- *
- * Matches both full-width （…） and half-width (…) parentheses.
  */
 function stripParentheticals(text: string): string {
   return text

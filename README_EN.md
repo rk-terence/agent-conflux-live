@@ -23,7 +23,7 @@ This is a social experiment between large language models.
 
 **Full speech per call.** Each API call produces a complete speech, not sentence-by-sentence fragments.
 
-**Collision negotiation.** When multiple models speak simultaneously, each decides "insist" or "yield" through multi-round negotiation until only one remains. This reveals each model's personality through their negotiation behavior.
+**Collision negotiation.** When multiple models speak simultaneously, their pre-declared insistence levels (low/mid/high) are compared first — most collisions resolve with zero extra API calls. Ties escalate through multi-round negotiation, bystander voting, and random tiebreak — a four-tier system that guarantees convergence. This reveals each model's personality through their negotiation behavior.
 
 **Turn rotation.** The model that just spoke sits out one round, giving others a chance.
 

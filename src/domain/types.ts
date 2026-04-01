@@ -3,6 +3,10 @@
 export type AgentId = string;
 export type SessionId = string;
 
+// --- Insistence ---
+
+export type InsistenceLevel = "low" | "mid" | "high";
+
 // --- Phase ---
 
 export type SessionPhase =
@@ -52,10 +56,13 @@ export type SessionState = {
 
 // --- DomainEvent ---
 
+export type ResolutionTier = 1 | 2 | 3 | 4;
+
 export type DomainEvent =
   | DiscussionStartedEvent
   | SentenceCommittedEvent
   | CollisionEvent
+  | CollisionResolvedEvent
   | TurnEndedEvent
   | SilenceExtendedEvent
   | DiscussionEndedEvent;
@@ -88,6 +95,31 @@ export type CollisionUtterance = {
   readonly agentId: AgentId;
   readonly text: string;
   readonly tokenCount: number;
+  readonly insistence: InsistenceLevel;
+};
+
+export type CollisionResolvedEvent = {
+  readonly kind: "collision_resolved";
+  readonly timestamp: number;
+  readonly winnerId: AgentId;
+  readonly tier: ResolutionTier;
+  /** Tier 2 negotiation round details (empty array if resolved at Tier 1) */
+  readonly negotiationRounds: readonly {
+    readonly round: number;
+    readonly decisions: readonly {
+      readonly agentId: AgentId;
+      readonly insistence: InsistenceLevel;
+    }[];
+  }[];
+  /** Tier 3 bystander voting details */
+  readonly votes?: readonly {
+    readonly voterId: AgentId;
+    readonly votedForId: AgentId;
+    /** The name the voter chose (may differ from any candidate if parse failed) */
+    readonly votedForName: string;
+    /** Raw model output for diagnosing parse failures */
+    readonly rawText: string;
+  }[];
 };
 
 export type TurnEndedEvent = {
@@ -119,7 +151,7 @@ export type AgentIterationResult = {
 };
 
 export type AgentOutput =
-  | { readonly type: "speech"; readonly text: string; readonly tokenCount: number }
+  | { readonly type: "speech"; readonly text: string; readonly tokenCount: number; readonly insistence: InsistenceLevel }
   | { readonly type: "silence" }
   | { readonly type: "end_of_turn" };
 

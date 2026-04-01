@@ -26,7 +26,7 @@ export type NegotiationRoundSnapshot = {
   readonly decisions: readonly {
     readonly agentId: string;
     readonly agentName: string;
-    readonly decision: "insist" | "yield";
+    readonly insistence: "low" | "mid" | "high";
   }[];
 };
 
@@ -49,13 +49,19 @@ function wasMentionedAfterLastSpeech(
 // Turn directive assembly
 // ---------------------------------------------------------------------------
 
+const INSISTENCE_LABEL: Record<"low" | "mid" | "high", string> = {
+  low: "让步",
+  mid: "犹豫",
+  high: "坚持",
+};
+
 function buildRoundSummary(
   round: NegotiationRoundSnapshot,
   selfAgentId: string,
 ): string {
   const decisions = round.decisions.map(d => {
     const name = d.agentId === selfAgentId ? "你" : d.agentName;
-    return `${name}${d.decision === "insist" ? "坚持" : "让步"}`;
+    return `${name}${INSISTENCE_LABEL[d.insistence]}`;
   });
   return render(ROUND_RESULT_TEMPLATE, {
     round: String(round.round),

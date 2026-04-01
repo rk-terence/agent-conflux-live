@@ -4,4 +4,7 @@ export type {
   NegotiationRoundResult,
   AgentDecision,
   NegotiationOutcome,
+  VoteResult,
+  VotingRoundResult,
+  ResolutionTier,
 } from "./negotiation.js";

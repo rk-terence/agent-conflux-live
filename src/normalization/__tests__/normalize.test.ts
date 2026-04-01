@@ -53,7 +53,7 @@ describe("normalizeOutput", () => {
       expect(result.output.type).toBe("silence");
     });
 
-    it("classifies non-empty text as speech", () => {
+    it("classifies non-empty text as speech with default insistence", () => {
       const result = normalizeOutput(
         makeOutput({ text: "我觉得这个问题很重要。" }),
         "reaction",
@@ -61,6 +61,7 @@ describe("normalizeOutput", () => {
       expect(result.output).toMatchObject({
         type: "speech",
         text: "我觉得这个问题很重要。",
+        insistence: "mid",
       });
       expect((result.output as any).tokenCount).toBeGreaterThan(0);
     });
@@ -70,7 +71,51 @@ describe("normalizeOutput", () => {
         makeOutput({ text: "  你好世界测试  " }),
         "reaction",
       );
-      expect(result.output).toMatchObject({ type: "speech", text: "你好世界测试" });
+      expect(result.output).toMatchObject({ type: "speech", text: "你好世界测试", insistence: "mid" });
+    });
+
+    it("parses structured JSON with speech and insistence", () => {
+      const result = normalizeOutput(
+        makeOutput({ text: '{"speech": "这是我的观点。", "insistence": "high"}' }),
+        "reaction",
+      );
+      expect(result.output).toMatchObject({
+        type: "speech",
+        text: "这是我的观点。",
+        insistence: "high",
+      });
+    });
+
+    it("parses structured JSON with null speech as silence", () => {
+      const result = normalizeOutput(
+        makeOutput({ text: '{"speech": null, "insistence": "low"}' }),
+        "reaction",
+      );
+      expect(result.output.type).toBe("silence");
+    });
+
+    it("parses JSON wrapped in markdown code fences", () => {
+      const result = normalizeOutput(
+        makeOutput({ text: '```json\n{"speech": "测试代码围栏。", "insistence": "low"}\n```' }),
+        "reaction",
+      );
+      expect(result.output).toMatchObject({
+        type: "speech",
+        text: "测试代码围栏。",
+        insistence: "low",
+      });
+    });
+
+    it("falls back to free-form text with default insistence on malformed JSON", () => {
+      const result = normalizeOutput(
+        makeOutput({ text: "这不是JSON，但是合法发言内容。" }),
+        "reaction",
+      );
+      expect(result.output).toMatchObject({
+        type: "speech",
+        text: "这不是JSON，但是合法发言内容。",
+        insistence: "mid",
+      });
     });
   });
 

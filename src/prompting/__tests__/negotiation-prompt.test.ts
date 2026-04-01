@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { buildNegotiationInput } from "../builders/negotiation.js";
 
 const candidates = [
-  { agentId: "claude", agentName: "Claude", utterance: "我觉得AI是有意识的" },
-  { agentId: "gpt", agentName: "GPT-4o", utterance: "意识是个哲学问题" },
+  { agentId: "claude", agentName: "Claude", utterance: "我觉得AI是有意识的", insistence: "high" as const },
+  { agentId: "gpt", agentName: "GPT-4o", utterance: "意识是个哲学问题", insistence: "high" as const },
 ];
 
 const allNames = ["Claude", "GPT-4o", "DeepSeek"];
@@ -48,8 +48,8 @@ describe("buildNegotiationInput", () => {
       {
         round: 1,
         decisions: [
-          { agentId: "claude", agentName: "Claude", decision: "insist" as const },
-          { agentId: "gpt", agentName: "GPT-4o", decision: "insist" as const },
+          { agentId: "claude", agentName: "Claude", insistence: "high" as const },
+          { agentId: "gpt", agentName: "GPT-4o", insistence: "high" as const },
         ],
       },
     ];
@@ -105,7 +105,7 @@ describe("buildNegotiationInput", () => {
     expect(input.userPromptText).not.toContain("点名向你");
   });
 
-  it("uses NEGOTIATION_MAX_TOKENS (20)", () => {
+  it("uses NEGOTIATION_MAX_TOKENS (30)", () => {
     const input = buildNegotiationInput(
       1,
       candidates[0],
@@ -118,7 +118,7 @@ describe("buildNegotiationInput", () => {
       "s1",
       1,
     );
-    expect(input.maxTokens).toBe(20);
+    expect(input.maxTokens).toBe(30);
   });
 
   it("uses negotiation mode", () => {

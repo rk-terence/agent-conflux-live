@@ -211,17 +211,28 @@ let pendingEvents: import("../domain/types.js").DomainEvent[] = [];
 
 function printNegotiation(neg: IterationDebugInfo["negotiation"]): void {
   if (!neg) return;
+  const INSISTENCE_COLOR: Record<string, string> = {
+    high: "\x1b[31m",  // red
+    mid: "\x1b[33m",   // yellow
+    low: "\x1b[32m",   // green
+  };
   for (const round of neg.rounds) {
     const desc = round.decisions.map(d => {
-      const color = d.decision === "insist" ? "\x1b[31m" : "\x1b[32m";
-      return `${color}${d.agentName}=${d.decision}${RESET}`;
+      const color = INSISTENCE_COLOR[d.insistence] ?? "";
+      return `${color}${d.agentName}=${d.insistence}${RESET}`;
     }).join("  ");
     process.stdout.write(`    ${DIM}协商#${round.round}:${RESET} ${desc}\n`);
+  }
+  if (neg.voting) {
+    const voteDesc = neg.voting.votes.map(v =>
+      `${v.voterName}→${v.votedForName}`
+    ).join("  ");
+    process.stdout.write(`    ${DIM}投票:${RESET} ${voteDesc}\n`);
   }
   const winnerName = neg.winnerId
     ? participants.find(p => p.agentId === neg.winnerId)?.name ?? neg.winnerId
     : null;
-  process.stdout.write(`    ${DIM}→ ${winnerName ? `${winnerName} 获得发言权` : "全部让步"}${RESET}\n`);
+  process.stdout.write(`    ${DIM}→ ${winnerName ? `${winnerName} 获得发言权` : "全部让步"} (tier ${neg.tier})${RESET}\n`);
 }
 
 const callbacks: DiscussionCallbacks = {

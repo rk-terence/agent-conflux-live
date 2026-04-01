@@ -15,12 +15,12 @@
 - [x] History 输出格式化为 markdown list（`- [ts]`、`**名字**：`、blockquote）
 - [x] `CallMode` 新增 `"negotiation"`，SmartDummyGateway 改用 `mode` 字段判断而非 sniff prompt 文案
 - [x] Normalization speaker-prefix regex 拓宽，支持含连字符/点号/空格的 agent 名（如 `GPT-4o`）
+- [x] LLM 输出结构化：reaction 返回 `{ speech, insistence }`，negotiation 返回 `{ insistence }`，voting 返回 `{ vote }`
+- [x] 碰撞协商从二值 insist/yield 改为四层级系统（预声明意愿 → 多轮三档协商 → 旁观者投票 → 随机），保证收敛
+- [x] Normalization 增加 JSON 提取与结构化解析，保留对自由文本的向后兼容 fallback
+- [x] `InsistenceLevel` 类型贯穿 domain → engine → negotiation 全链路
 
 ## Next
-
-- [ ] 在协商 prompt 中加入更有效的上下文引导，平衡过度强势或过度谦让的模型
-- [ ] 评估协商轮数过多时（4-5 轮）的收敛效率
-- [ ] 评估“全部让步后重试”策略是否需要调整
 - [ ] 减少 meta 发言（如“让我把话说完”“抱歉刚才重叠了”），让模型更聚焦话题本身
 - [ ] 引导模型产出更有差异化的观点，而非互相附和
 - [ ] 研究不同话题类型下的 prompt 表现差异
@@ -32,7 +32,7 @@
 ## Open Questions
 
 - 当前重复检测仍是逐字匹配；是否需要升级为语义相似度检测？
-- 协商机制是否需要对“DeepSeek 几乎不 yield、Gemini 过度谦让”做更强的系统性平衡？
+- 四层级协商的 Tier 1 解决率是否足够高？是否需要调整 insistence prompt 引导？
 - 历史压缩可以做到多激进，才不会明显伤害讨论质量？
 - 按需调用是否会改善成本表现，同时不破坏讨论节奏？
 
@@ -56,7 +56,7 @@ Open questions:
 - [ ] 为 UI 的 ZenMux 接入补上 `thinkingAgents`，恢复 thinking 模型的 10x token 补偿
 - [ ] 修复会话串扰：快速重启时旧 runner 的收尾事件可能污染新会话
 - [ ] 降低浏览器端直接持有 API key 的风险
-- [ ] 从纯文本输出升级到结构化输出，例如 `{ speech, emotion, reaction }`
+- [ ] 在结构化输出基础上增加 emotion / reaction 字段（如 `{ speech, insistence, emotion }`）
 - [ ] 给 agent 增加情绪 / 反应状态，而不要求必须发言
 - [ ] 增加圆桌视图的表情动画和反应气泡
 - [ ] 实时展示协商过程（谁在坚持、谁在让步）

@@ -186,13 +186,13 @@ export class DiscussionLogger {
     const now = ts();
     this.appendJsonl({ type: "negotiation" as never, timestamp: now, iterationId, negotiation } as never);
 
-    this.appendLog(`  ┌─ NEGOTIATION (${negotiation.rounds.length} rounds)`);
+    this.appendLog(`  ┌─ NEGOTIATION (tier ${negotiation.tier}, ${negotiation.rounds.length} rounds)`);
     for (const round of negotiation.rounds) {
       this.appendLog(`  │`);
       this.appendLog(`  │  ── Round ${round.round} ──`);
       for (const d of round.decisions) {
         this.appendLog(`  │`);
-        this.appendLog(`  │  [${d.agentName}] → ${d.decision} (raw: "${d.rawText.trim()}")`);
+        this.appendLog(`  │  [${d.agentName}] → insistence=${d.insistence} (raw: "${d.rawText.trim()}")`);
         this.appendLog(`  │    [System Prompt]`);
         for (const line of d.prompt.systemPrompt.split("\n")) {
           this.appendLog(`  │    │ ${line}`);
@@ -203,9 +203,16 @@ export class DiscussionLogger {
         }
       }
     }
+    if (negotiation.voting) {
+      this.appendLog(`  │`);
+      this.appendLog(`  │  ── Voting ──`);
+      for (const v of negotiation.voting.votes) {
+        this.appendLog(`  │  [${v.voterName}] → voted for ${v.votedForName} (raw: "${v.rawText.trim()}")`);
+      }
+    }
     this.appendLog(`  │`);
     const winner = negotiation.winnerId;
-    this.appendLog(`  │  Result: ${winner ? `${winner} wins the floor` : "all yielded — nobody speaks"}`);
+    this.appendLog(`  │  Result: tier ${negotiation.tier}, ${winner ? `${winner} wins the floor` : "all yielded — nobody speaks"}`);
     this.appendLog(`  └─`);
     this.appendLog("");
   }

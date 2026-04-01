@@ -1,3 +1,5 @@
-export const REACTION_MAX_TOKENS = 300;
+export const REACTION_MAX_TOKENS = 400;
 
-export const NEGOTIATION_MAX_TOKENS = 20;
+export const NEGOTIATION_MAX_TOKENS = 30;
+
+export const VOTING_MAX_TOKENS = 30;

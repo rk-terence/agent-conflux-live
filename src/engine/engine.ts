@@ -1,4 +1,4 @@
-import type { SessionState, DomainEvent, AgentIterationResult, IterationResult } from "../domain/types.js";
+import type { SessionState, DomainEvent, AgentIterationResult, IterationResult, CollisionResolvedEvent } from "../domain/types.js";
 import { reduceIteration } from "../domain/reducer.js";
 import { projectHistory } from "../history/projector.js";
 import { buildReactionInput } from "../prompting/builder.js";
@@ -180,20 +180,27 @@ export async function runIteration(
       agentId: u.agentId,
       agentName: nameMap.get(u.agentId) ?? u.agentId,
       utterance: u.text,
+      insistence: u.insistence,
     }));
 
-    // Build perspective-specific history for each candidate.
+    const allParticipantInfo = state.participants.map(p => ({
+      agentId: p.agentId,
+      agentName: p.name,
+    }));
+
+    // Build perspective-specific history for ALL participants (not just colliders).
+    // Tier 3 bystander voting needs bystander histories too.
     // Use state.events (BEFORE the reducer committed this collision) so that
     // the projected history only contains prior events. The current collision
     // is described in the negotiation turn directive — not in projected history.
     const perspectiveHistories = new Map<string, string>();
-    for (const c of candidates) {
+    for (const p of state.participants) {
       perspectiveHistories.set(
-        c.agentId,
+        p.agentId,
         projectHistory({
           events: state.events,
           currentTurn: null,
-          perspectiveAgentId: c.agentId,
+          perspectiveAgentId: p.agentId,
           participants: state.participants,
         }),
       );
@@ -201,6 +208,7 @@ export async function runIteration(
 
     negotiation = await negotiateCollision(
       candidates,
+      allParticipantInfo,
       allNames,
       state.topic,
       perspectiveHistories,
@@ -210,8 +218,30 @@ export async function runIteration(
       abortSignal,
     );
 
-    // If negotiation produced a winner, replay their utterance through the reducer
+    // Emit collision_resolved event with full resolution metadata
     if (negotiation.winnerId) {
+      const resolvedEvent: CollisionResolvedEvent = {
+        kind: "collision_resolved",
+        timestamp: nextState.virtualTime,
+        winnerId: negotiation.winnerId,
+        tier: negotiation.tier,
+        negotiationRounds: negotiation.rounds.map(r => ({
+          round: r.round,
+          decisions: r.decisions.map(d => ({ agentId: d.agentId, insistence: d.insistence })),
+        })),
+        votes: negotiation.voting?.votes.map(v => ({
+          voterId: v.voterId,
+          votedForId: v.votedForId,
+          votedForName: v.votedForName,
+          rawText: v.rawText,
+        })),
+      };
+
+      // Insert resolved event into state and iteration events
+      nextState = { ...nextState, events: [...nextState.events, resolvedEvent] };
+      events = [...events, resolvedEvent];
+
+      // Replay the winner's utterance through the reducer
       const winnerUtterance = gapCollision.utterances.find(
         u => u.agentId === negotiation!.winnerId,
       );
@@ -219,7 +249,7 @@ export async function runIteration(
         const replayResults: AgentIterationResult[] = state.participants.map(p => ({
           agentId: p.agentId,
           output: p.agentId === negotiation!.winnerId
-            ? { type: "speech" as const, text: winnerUtterance.text, tokenCount: winnerUtterance.tokenCount }
+            ? { type: "speech" as const, text: winnerUtterance.text, tokenCount: winnerUtterance.tokenCount, insistence: winnerUtterance.insistence }
             : { type: "silence" as const },
         }));
 

@@ -9,8 +9,9 @@
 export const NEGOTIATION_SYSTEM_TEMPLATE = [
   "你是 {{agentName}}，正在参与一个关于「{{topic}}」的圆桌讨论。",
   "刚才你和其他人同时开口了，声音重叠，没有人听清。",
-  "现在需要协商谁先发言。请根据讨论的上下文和你的判断决定：坚持发言，还是让别人先说。",
-  "只回复「坚持」或「让步」，不要输出其他内容。",
+  "现在需要协商谁先发言。请根据讨论的上下文和你的判断，表明你的坚持程度。",
+  '用 JSON 格式回复（不要加 markdown 代码块标记）：{ "insistence": "low" }',
+  "insistence：low（愿意让步）/ mid（有话想说但可以等）/ high（非说不可）",
 ].join("\n");
 
 // ---------------------------------------------------------------------------
@@ -31,4 +32,4 @@ export const ROUND_RESULT_TEMPLATE =
 export const DEADLOCK_TEMPLATE =
   "目前还有你和 {{competitors}} 都想说话，已经僵持了 {{roundCount}} 轮。";
 
-export const NEGOTIATION_QUESTION = "你要坚持发言，还是让步？";
+export const NEGOTIATION_QUESTION = "请用 JSON 格式回复你的坚持程度。";

@@ -7,6 +7,7 @@ import type {
   SentenceCommittedEvent,
   TurnEndedEvent,
   CollisionEvent,
+  CollisionResolvedEvent,
   SilenceExtendedEvent,
 } from "../../domain/types.js";
 import { TOKEN_TO_SECONDS } from "../../domain/constants.js";
@@ -123,8 +124,8 @@ describe("projectHistory", () => {
         timestamp: 3,
         during: "gap",
         utterances: [
-          { agentId: "gpt", text: "我想说——", tokenCount: 15 },
-          { agentId: "deepseek", text: "让我来——", tokenCount: 15 },
+          { agentId: "gpt", text: "我想说——", tokenCount: 15, insistence: "mid" },
+          { agentId: "deepseek", text: "让我来——", tokenCount: 15, insistence: "mid" },
         ],
       };
 
@@ -138,8 +139,8 @@ describe("projectHistory", () => {
         timestamp: 3,
         during: "gap",
         utterances: [
-          { agentId: "gpt", text: "我想说——", tokenCount: 15 },
-          { agentId: "claude", text: "我也想说——", tokenCount: 15 },
+          { agentId: "gpt", text: "我想说——", tokenCount: 15, insistence: "mid" },
+          { agentId: "claude", text: "我也想说——", tokenCount: 15, insistence: "mid" },
         ],
       };
 
@@ -155,8 +156,8 @@ describe("projectHistory", () => {
       timestamp: 3,
       during: "gap",
       utterances: [
-        { agentId: "gpt", text: "我想说——", tokenCount: 15 },
-        { agentId: "claude", text: "我也想说——", tokenCount: 15 },
+        { agentId: "gpt", text: "我想说——", tokenCount: 15, insistence: "mid" },
+        { agentId: "claude", text: "我也想说——", tokenCount: 15, insistence: "mid" },
       ],
     };
     const winnerSpeech = sentence("claude", "最终我说出了完整的话。", 20, 0, 3);
@@ -193,6 +194,90 @@ describe("projectHistory", () => {
       // The winner's speech should only appear inside the collision item, not as a standalone
       const listItems = result.split("\n").filter(l => l.startsWith("- "));
       expect(listItems).toHaveLength(2); // start + collision (merged with speech)
+    });
+  });
+
+  describe("tier-aware resolved collision", () => {
+    const collision: CollisionEvent = {
+      kind: "collision",
+      timestamp: 3,
+      during: "gap",
+      utterances: [
+        { agentId: "gpt", text: "我想说——", tokenCount: 15, insistence: "mid" },
+        { agentId: "claude", text: "我也想说——", tokenCount: 15, insistence: "high" },
+      ],
+    };
+    const winnerSpeech = sentence("claude", "最终我说出了完整的话。", 20, 0, 3);
+
+    function resolved(tier: 1 | 2 | 3 | 4, overrides: Partial<CollisionResolvedEvent> = {}): CollisionResolvedEvent {
+      return {
+        kind: "collision_resolved",
+        timestamp: 3,
+        winnerId: "claude",
+        tier,
+        negotiationRounds: [],
+        ...overrides,
+      };
+    }
+
+    it("Tier 1: winner sees insistence-based resolution", () => {
+      const events: DomainEvent[] = [startEvent, collision, resolved(1), winnerSpeech, turnEnded("claude", 1)];
+      const result = project(events, "claude");
+      expect(result).toContain("GPT-4o 发言意愿没你高，你先说了");
+      expect(result).toContain("  你说：\n  > 最终我说出了完整的话。");
+    });
+
+    it("Tier 1: yielder sees insistence-based resolution", () => {
+      const events: DomainEvent[] = [startEvent, collision, resolved(1), winnerSpeech, turnEnded("claude", 1)];
+      const result = project(events, "gpt");
+      expect(result).toContain("Claude 的发言意愿更强，Claude 先说了");
+      expect(result).toContain("  你想说但没说出来的：\n  > 我想说——");
+    });
+
+    it("Tier 1: bystander sees insistence-based resolution", () => {
+      const events: DomainEvent[] = [startEvent, collision, resolved(1), winnerSpeech, turnEnded("claude", 1)];
+      const result = project(events, "deepseek");
+      expect(result).toContain("Claude 的发言意愿最强，Claude 先说了");
+    });
+
+    it("Tier 2: shows negotiation-based resolution", () => {
+      const events: DomainEvent[] = [startEvent, collision, resolved(2, {
+        negotiationRounds: [{ round: 1, decisions: [
+          { agentId: "gpt", insistence: "low" },
+          { agentId: "claude", insistence: "high" },
+        ] }],
+      }), winnerSpeech, turnEnded("claude", 1)];
+      const result = project(events, "gpt");
+      expect(result).toContain("经过协商 Claude 获得了发言权");
+    });
+
+    it("Tier 3: bystander who voted sees their vote", () => {
+      const events: DomainEvent[] = [startEvent, collision, resolved(3, {
+        votes: [{ voterId: "deepseek", votedForId: "claude", votedForName: "Claude", rawText: '{"vote":"Claude"}' }],
+      }), winnerSpeech, turnEnded("claude", 1)];
+      const result = project(events, "deepseek");
+      expect(result).toContain("你投票给了 Claude，Claude 先说了");
+    });
+
+    it("Tier 3: yielder sees voting result", () => {
+      const events: DomainEvent[] = [startEvent, collision, resolved(3, {
+        votes: [{ voterId: "deepseek", votedForId: "claude", votedForName: "Claude", rawText: '{"vote":"Claude"}' }],
+      }), winnerSpeech, turnEnded("claude", 1)];
+      const result = project(events, "gpt");
+      expect(result).toContain("大家投票让 Claude 先说");
+    });
+
+    it("Tier 4: shows random resolution", () => {
+      const events: DomainEvent[] = [startEvent, collision, resolved(4), winnerSpeech, turnEnded("claude", 1)];
+      const result = project(events, "gpt");
+      expect(result).toContain("僵持不下，最终 Claude 先说了");
+    });
+
+    it("skips collision_resolved and sentence_committed in lookahead (no duplicate rendering)", () => {
+      const events: DomainEvent[] = [startEvent, collision, resolved(1), winnerSpeech, turnEnded("claude", 1)];
+      const result = project(events, "deepseek");
+      const listItems = result.split("\n").filter(l => l.startsWith("- "));
+      expect(listItems).toHaveLength(2); // start + collision (merged)
     });
   });
 
@@ -241,8 +326,8 @@ describe("projectHistory", () => {
           timestamp: 2,
           during: "gap",
           utterances: [
-            { agentId: "claude", text: "我要反驳。", tokenCount: 15 },
-            { agentId: "gpt", text: "我有不同看法。", tokenCount: 15 },
+            { agentId: "claude", text: "我要反驳。", tokenCount: 15, insistence: "mid" },
+            { agentId: "gpt", text: "我有不同看法。", tokenCount: 15, insistence: "mid" },
           ],
         },
         sentence("claude", "我要反驳——AI没有主观体验。", 30, 0, 2),
@@ -260,9 +345,9 @@ describe("projectHistory", () => {
           timestamp: 1,
           during: "gap",
           utterances: [
-            { agentId: "claude", text: "让我先说。", tokenCount: 10 },
-            { agentId: "gpt", text: "我来。", tokenCount: 8 },
-            { agentId: "deepseek", text: "等一下。", tokenCount: 8 },
+            { agentId: "claude", text: "让我先说。", tokenCount: 10, insistence: "mid" },
+            { agentId: "gpt", text: "我来。", tokenCount: 8, insistence: "mid" },
+            { agentId: "deepseek", text: "等一下。", tokenCount: 8, insistence: "mid" },
           ],
         },
         {

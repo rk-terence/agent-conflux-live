@@ -159,7 +159,7 @@ function handleGapCollision(
 ): ReducerOutput {
   const utterances = speakers.map(r => {
     const o = r.output as Extract<AgentOutput, { type: "speech" }>;
-    return { agentId: r.agentId, text: o.text, tokenCount: o.tokenCount };
+    return { agentId: r.agentId, text: o.text, tokenCount: o.tokenCount, insistence: o.insistence };
   });
 
   const collisionDuration = utterances.length * COLLISION_BASE_SECONDS_PER_PERSON;

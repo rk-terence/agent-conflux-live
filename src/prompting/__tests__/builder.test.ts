@@ -15,7 +15,7 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("其他参与者：GPT-4o、DeepSeek");
     expect(prompt).toContain("话题：AI意识问题");
     expect(prompt).toContain("没有主持人");
-    expect(prompt).toContain("[silence]");
+    expect(prompt).toContain("JSON 格式回复");
   });
 
   it("snapshot: system prompt structure", () => {
@@ -40,9 +40,9 @@ describe("buildReactionInput", () => {
     expect(input.sessionId).toBe("s1");
     expect(input.iterationId).toBe(3);
     expect(input.agentId).toBe("claude");
-    expect(input.maxTokens).toBe(300);
+    expect(input.maxTokens).toBe(400);
     expect(input.userPromptText).toBe(
-      "- [1.0s] **GPT-4o**：\n  > 我先说一句。\n\n---\n你要发言吗？",
+      "- [1.0s] **GPT-4o**：\n  > 我先说一句。\n\n---\n请用 JSON 格式回复。",
     );
     expect(input.assistantPrefill).toBeUndefined();
     expect(input.stopSequences).toBeUndefined();
@@ -59,7 +59,7 @@ describe("buildReactionInput", () => {
       projectedHistory: "",
     });
 
-    expect(input.userPromptText).toBe("---\n你要发言吗？");
+    expect(input.userPromptText).toBe("---\n请用 JSON 格式回复。");
   });
 
   it("snapshot: first round input", () => {

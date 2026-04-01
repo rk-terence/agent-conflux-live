@@ -1,10 +1,11 @@
 import type { ModelGateway, ModelCallInput, ModelCallOutput } from "./types.js";
+import type { InsistenceLevel } from "../domain/types.js";
 
 /**
  * A dummy gateway that simulates realistic discussion behavior.
- * - In reaction mode: randomly speaks or stays silent based on personality profile
- * - Detects negotiation prompts and responds with personality-driven insist/yield
- * - Produces varied Chinese text to make the discussion feel alive
+ * - In reaction mode: returns structured JSON with speech/insistence
+ * - In negotiation mode: returns structured JSON with insistence level
+ * - In voting mode: picks a random candidate from the prompt
  */
 
 const SAMPLE_REACTIONS: Record<string, string[]> = {
@@ -102,6 +103,10 @@ export class SmartDummyGateway implements ModelGateway {
       return this.handleNegotiation(input);
     }
 
+    if (input.mode === "voting") {
+      return this.handleVoting(input);
+    }
+
     return this.handleReaction(input);
   }
 
@@ -113,17 +118,18 @@ export class SmartDummyGateway implements ModelGateway {
     if (!shouldSpeak) {
       return {
         agentId: input.agentId,
-        text: "[silence]",
+        text: JSON.stringify({ speech: null, insistence: "low" }),
         finishReason: "completed",
       };
     }
 
     const pool = SAMPLE_REACTIONS[input.agentId] ?? DEFAULT_REACTIONS;
     const text = pool[Math.floor(Math.random() * pool.length)];
+    const insistence = randomInsistence(personality.insistChance);
 
     return {
       agentId: input.agentId,
-      text,
+      text: JSON.stringify({ speech: text, insistence }),
       finishReason: "completed",
     };
   }
@@ -140,12 +146,41 @@ export class SmartDummyGateway implements ModelGateway {
       insistChance = Math.max(0.1, insistChance - stalledRounds * 0.2);
     }
 
-    const decision = Math.random() < insistChance ? "坚持" : "让步";
+    const insistence = randomInsistence(insistChance);
 
     return {
       agentId: input.agentId,
-      text: decision,
+      text: JSON.stringify({ insistence }),
       finishReason: "completed",
     };
   }
+
+  private handleVoting(input: ModelCallInput): ModelCallOutput {
+    // Extract candidate names from the prompt
+    const candidateMatch = input.userPromptText.match(/想要发言的人：(.+?)。/);
+    if (candidateMatch) {
+      const names = candidateMatch[1].split("、");
+      const chosen = names[Math.floor(Math.random() * names.length)];
+      return {
+        agentId: input.agentId,
+        text: JSON.stringify({ vote: chosen }),
+        finishReason: "completed",
+      };
+    }
+    return {
+      agentId: input.agentId,
+      text: JSON.stringify({ vote: "unknown" }),
+      finishReason: "completed",
+    };
+  }
+}
+
+/**
+ * Map personality assertiveness to a three-level insistence distribution.
+ */
+function randomInsistence(assertiveness: number): InsistenceLevel {
+  const r = Math.random();
+  if (r < assertiveness * 0.5) return "high";
+  if (r < assertiveness) return "mid";
+  return "low";
 }

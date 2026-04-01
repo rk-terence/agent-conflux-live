@@ -183,20 +183,22 @@ describe("runIteration", () => {
 
   it("negotiation projected history does not include the current collision", async () => {
     const state = initSession();
-    // Two agents speak → collision → negotiation
+    // Two agents speak with same insistence → collision → Tier 2 negotiation
     const negotiationCalls: ModelCallInput[] = [];
     const gw = new DummyGateway(() => "");
     gw.generate = async (input) => {
       if (input.mode === "negotiation") {
         negotiationCalls.push(input);
-        // First agent yields so negotiation converges
+        // First agent declares low so negotiation converges
         return {
           agentId: input.agentId,
-          text: input.agentId === "claude" ? "让步" : "坚持",
+          text: input.agentId === "claude"
+            ? '{"insistence": "low"}'
+            : '{"insistence": "high"}',
           finishReason: "completed" as const,
         };
       }
-      // Reaction mode: claude and gpt speak, deepseek silent
+      // Reaction mode: claude and gpt speak (same insistence), deepseek silent
       return {
         agentId: input.agentId,
         text: input.agentId === "deepseek" ? "[silence]" : "我要说话。",
@@ -206,7 +208,7 @@ describe("runIteration", () => {
 
     await runIteration(state, gw);
 
-    // Negotiation should have been triggered
+    // Negotiation should have been triggered (both have "mid" insistence from fallback)
     expect(negotiationCalls.length).toBeGreaterThan(0);
 
     // On the first iteration, the only event before the collision is discussion_started.
@@ -221,5 +223,45 @@ describe("runIteration", () => {
       expect(projectedHistoryPart).toContain("讨论开始");
       expect(projectedHistoryPart).not.toContain("同时开口");
     }
+  });
+
+  it("resolves collision via Tier 1 when insistence levels differ (zero negotiation calls)", async () => {
+    const state = initSession();
+    let negotiationCalls = 0;
+    const gw = new DummyGateway(() => "");
+    gw.generate = async (input) => {
+      if (input.mode === "negotiation") {
+        negotiationCalls++;
+        return { agentId: input.agentId, text: '{"insistence": "mid"}', finishReason: "completed" as const };
+      }
+      // claude speaks with high insistence, gpt with low — Tier 1 should resolve
+      if (input.agentId === "claude") {
+        return { agentId: input.agentId, text: '{"speech": "我的观点。", "insistence": "high"}', finishReason: "completed" as const };
+      }
+      if (input.agentId === "gpt") {
+        return { agentId: input.agentId, text: '{"speech": "我也想说。", "insistence": "low"}', finishReason: "completed" as const };
+      }
+      return { agentId: input.agentId, text: '{"speech": null, "insistence": "low"}', finishReason: "completed" as const };
+    };
+
+    const result = await runIteration(state, gw);
+
+    // Tier 1 should resolve with zero negotiation calls
+    expect(negotiationCalls).toBe(0);
+    // collision_resolved event emitted with tier info
+    const resolvedEvent = result.events.find(e => e.kind === "collision_resolved");
+    expect(resolvedEvent).toBeDefined();
+    expect(resolvedEvent).toMatchObject({ kind: "collision_resolved", winnerId: "claude", tier: 1 });
+    // claude won, speech committed
+    expect(result.events.some(e => e.kind === "sentence_committed" && e.speakerId === "claude")).toBe(true);
+    expect(result.debug.negotiation?.tier).toBe(1);
+
+    // Event sequence: collision → collision_resolved → sentence_committed
+    const kinds = result.events.map(e => e.kind);
+    const collIdx = kinds.indexOf("collision");
+    const resIdx = kinds.indexOf("collision_resolved");
+    const speechIdx = kinds.indexOf("sentence_committed");
+    expect(collIdx).toBeLessThan(resIdx);
+    expect(resIdx).toBeLessThan(speechIdx);
   });
 });

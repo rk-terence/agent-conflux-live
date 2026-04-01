@@ -41,7 +41,7 @@ This document covers the non-UI core of the system:
 - **Pure state transitions.** Discussion rules are implemented as pure domain logic.
 - **First-person history projection.** Each agent sees a perspective-specific transcript.
 - **Provider isolation.** Provider-specific protocol differences do not leak into domain logic.
-- **Negotiation over randomness.** Collision resolution is decided by the agents themselves, not by the system.
+- **Negotiation over randomness.** Collision resolution is primarily decided by the agents themselves (pre-declared insistence, negotiation, voting), with random tiebreak only as an ultimate fallback to guarantee convergence.
 
 ## Core Invariants
 
@@ -61,12 +61,14 @@ The `domain` module owns the business model of a discussion.
 
 Responsibilities:
 
-- define `SessionState`, `DomainEvent`, and iteration result types
+- define `SessionState`, `DomainEvent`, `InsistenceLevel`, and iteration result types
 - define valid phase transitions (only `turn_gap` and `ended` in the simplified model)
 - advance virtual time
 - apply silence backoff
 - decide single-speaker, collision, and discussion end
 - enforce invariants
+
+`InsistenceLevel` (`"low"` | `"mid"` | `"high"`) is carried on `AgentOutput.speech` and `CollisionUtterance`, enabling pre-declared collision resolution without extra API calls.
 
 Phase model (simplified):
 
@@ -102,17 +104,24 @@ Responsibilities:
 
 ### 3. Negotiation
 
-The `negotiation` module resolves collisions through multi-round agent deliberation.
+The `negotiation` module resolves collisions through a four-tier system that guarantees convergence.
 
-When multiple agents speak simultaneously (gap collision), each is asked: "Do you insist on speaking, or yield to others?" The process iterates until exactly one agent insists (they win the floor) or max rounds (5) are reached.
+When multiple agents speak simultaneously (gap collision), each agent's pre-declared `insistence` level (`low` / `mid` / `high`) is compared first. This resolves most collisions with zero extra API calls. Remaining ties escalate through negotiation rounds, bystander voting, and ultimately random selection.
+
+Four-tier resolution:
+
+- **Tier 1: Pre-declared insistence** (zero API calls) — compare insistence levels declared during the reaction call. Unique highest wins.
+- **Tier 2: Multi-round negotiation** (max 3 rounds) — only tied-highest candidates enter. Each round, agents re-declare a three-level insistence via API call. Unique highest wins. All-low → reset. Otherwise narrow.
+- **Tier 3: Bystander voting** (one API call per bystander) — non-colliders vote on who should speak. They see candidate identities but not speech content. Unique highest vote count wins.
+- **Tier 4: Random** (deterministic termination) — tiebreak for vote ties or no bystanders.
 
 Key behaviors:
 
-- **All-yield → retry**: if everyone yields in a round, all candidates re-enter the next round (social "after you" deadlock resolution)
-- **Multiple insist → narrow down**: only insisting agents continue to the next round
-- **@mention awareness**: if an agent was recently @-mentioned (after their last speech), the prompt hints they have stronger reason to insist
-- **Full discussion context**: each agent sees their perspective-specific history in the negotiation prompt
-- **Negotiation rounds logged**: every round's decisions and prompts are recorded in debug output
+- **@mention awareness**: if an agent was recently @-mentioned (after their last speech), the negotiation prompt hints they have stronger reason to insist
+- **Full discussion context**: each agent sees their perspective-specific history in negotiation and voting prompts
+- **All rounds and votes logged**: every tier's decisions are recorded both in debug output and in `CollisionResolvedEvent` domain events
+- **Guaranteed convergence**: Tier 4 is an unconditional termination point — collisions always resolve
+- **`CollisionResolvedEvent`**: emitted by the engine after negotiation, before winner replay. Carries `winnerId`, `tier`, `negotiationRounds` (Tier 2 details), and `votes` (Tier 3 details). This event allows the full collision resolution story to be reconstructed from domain events alone
 
 ### 4. History Projector
 
@@ -127,27 +136,38 @@ Output format:
 - Quoted speech uses markdown blockquote (`> `) inside list item indentation
 - Resolved collisions merge with the winner's speech into a single list item (the next `sentence_committed` is consumed and not rendered separately)
 
-Example output (yielder's perspective):
+Example output (yielder's perspective, Tier 1 resolution):
 
 ```markdown
 - [0.0s] 讨论开始 — 话题：AI意识
 - [1.0s] **DeepSeek**：
   > 开场白。
-- [2.0s] 你和 Claude 同时开口了，你决定让 Claude 先说
+- [2.0s] 你和 Claude 同时开口了，Claude 的发言意愿更强，Claude 先说了
   你想说但没说出来的：
   > 我有不同看法。
   Claude 说：
   > 我要反驳——AI没有主观体验。
 ```
 
+Resolution summary varies by tier and perspective:
+
+| Tier | Winner | Yielder | Bystander |
+|------|--------|---------|-----------|
+| 1 | X 发言意愿没你高，你先说了 | X 的发言意愿更强，X 先说了 | X 的发言意愿最强，X 先说了 |
+| 2 | 经过协商你获得了发言权 | 经过协商 X 获得了发言权 | 经过协商 X 获得了发言权 |
+| 3 | 大家投票让你先说 | 大家投票让 X 先说 | 你投票给了 X，X 先说了 |
+| 4 | 僵持不下，最终你先说了 | 僵持不下，最终 X 先说了 | 僵持不下，最终 X 先说了 |
+
+Resolved collision event sequence: `CollisionEvent → CollisionResolvedEvent → SentenceCommittedEvent → TurnEndedEvent`
+
 Responsibilities:
 
 - render completed speech: `- [3.5s] **DeepSeek**：` + blockquoted content
-- render resolved collisions: one-line summary + indented unsaid/said speech in blockquotes
+- render resolved collisions: tier-aware summary + indented unsaid/said speech in blockquotes
 - render unresolved collisions: summary + participant's unsaid speech in blockquote
 - render silence annotations: `- [5.0s] 安静了 1 秒（累计 3 秒）`
 - replace the current agent's own name with first-person `你`
-- look-ahead to detect resolved vs unresolved collisions (collision followed by sentence_committed from a collider = resolved)
+- look-ahead to detect resolved vs unresolved collisions (collision followed by `collision_resolved` + `sentence_committed` = resolved; legacy path without `collision_resolved` also supported)
 - produce history that is reusable across prompt modes, without mode-specific directives
 
 History projection contract:
@@ -180,12 +200,14 @@ Prompt contract:
 
 Structure:
 
-- `prompting/templates/reaction.ts` — pure constant template for the reaction system prompt, rules array, and collision notice. Uses `{{slot}}` placeholders.
-- `prompting/templates/negotiation.ts` — pure constant template for the negotiation system prompt, collision description, mention hint, round summaries, and deadlock notice.
+- `prompting/templates/reaction.ts` — pure constant template for the reaction system prompt, rules array, and collision notice. Uses `{{slot}}` placeholders. Instructs models to output structured JSON.
+- `prompting/templates/negotiation.ts` — pure constant template for the negotiation system prompt, collision description, mention hint, round summaries, and deadlock notice. Instructs models to output JSON insistence level.
+- `prompting/templates/voting.ts` — pure constant template for the bystander voting system prompt. Instructs models to output JSON vote.
 - `prompting/render.ts` — strict slot renderer: replaces `{{key}}` placeholders, throws on missing variables.
 - `prompting/builders/reaction.ts` — prepares variables (agent name, other names, topic, collision context) and renders the reaction prompt via templates.
 - `prompting/builders/negotiation.ts` — prepares variables (discussion history, @mention detection, round summaries, deadlock context) and renders the negotiation prompt via templates.
-- `prompting/constants.ts` — token limits (REACTION_MAX_TOKENS = 300, NEGOTIATION_MAX_TOKENS = 20).
+- `prompting/builders/voting.ts` — prepares variables (voter, candidates, discussion history) and renders the voting prompt via templates.
+- `prompting/constants.ts` — token limits (REACTION_MAX_TOKENS = 400, NEGOTIATION_MAX_TOKENS = 30, VOTING_MAX_TOKENS = 30).
 - `prompting/builder.ts` — re-export shim for backwards compatibility.
 
 Responsibilities:
@@ -199,9 +221,10 @@ Responsibilities:
 
 Key system prompt rules:
 
-- Only output spoken words, no action descriptions or parentheticals
+- Reply in structured JSON: `{ "speech": "...", "insistence": "low" | "mid" | "high" }`, `speech: null` for silence
+- `insistence` is a pre-declared self-assessment of how much the agent wants to persist if someone else is also speaking
+- No action descriptions or parentheticals
 - Don't mimic history format (no `**你**：` prefix)
-- `[silence]` when nothing to say
 - Multiple simultaneous speakers = nobody heard; don't rush
 - `**你**` in history = yourself
 - Say your complete thought in one response
@@ -209,8 +232,9 @@ Key system prompt rules:
 Turn directive rules:
 
 - The turn directive is the only prompt part that asks the model to decide or speak now
-- Reaction mode turn directive asks whether to speak this round
-- Negotiation mode turn directive asks whether to insist or yield
+- Reaction mode turn directive asks for a JSON response (speech + insistence)
+- Negotiation mode turn directive asks for a JSON insistence level declaration
+- Voting mode turn directive asks for a JSON vote for a candidate
 - Collision reminders, @mention reminders, round summaries, and deadlock notes are part of the turn directive, not part of projected history
 - Builders may assemble the turn directive from multiple template fragments, but the final prompt contract still treats it as one semantic part
 
@@ -227,7 +251,7 @@ The `model-gateway` module is the only abstraction the engine uses to call model
 Three implementations:
 
 - `DummyGateway`: fully controllable via a response function, used in unit tests.
-- `SmartDummyGateway`: simulates realistic discussion with personality profiles that mirror real API observations (DeepSeek assertive, Gemini polite, Qwen balanced). Detects negotiation prompts and responds with personality-driven decisions. Social pressure increases yield probability in later rounds. Accepts optional `speakChanceOverride` to control activity level.
+- `SmartDummyGateway`: simulates realistic discussion with personality profiles that mirror real API observations (DeepSeek assertive, Gemini polite, Qwen balanced). Returns structured JSON for all modes: reaction (`speech` + `insistence`), negotiation (`insistence`), voting (`vote`). Social pressure increases yield probability in later rounds. Accepts optional `speakChanceOverride` to control activity level.
 - `ZenMuxGateway`: real provider adapter using ZenMux aggregation platform (OpenAI-compatible protocol). Returns full model responses (no sentence extraction). Supports per-model thinking configuration (10x max_tokens for thinking models). Error responses are truncated to status code + message.
 
 Preset configurations:
@@ -239,15 +263,21 @@ Preset configurations:
 
 The `normalization` module translates raw model outputs into domain-usable results.
 
-Cleaning pipeline (in order):
+Structured output parsing (reaction mode):
 
-1. Detect history hallucination (text starting with `- [数字s]` or `[数字s]`) → discard
-2. Strip speaker prefixes (`[你]:`, `[Gemini]:`, `**你**：`, `**Claude**：`) → remove
-3. Strip parenthetical actions (`（等了一秒）`, `(turns to X)`) → remove
-4. Check minimum length (< 4 chars) → discard as silence
-5. Classify `[silence]` / empty → silence
-6. `finishReason: "max_tokens"` → treat as speech (not error)
-7. `finishReason: "error"` / `"cancelled"` → error (will be retried by engine)
+1. `finishReason: "error"` / `"cancelled"` → error (will be retried by engine)
+2. Attempt to extract JSON object from the raw text (handles code fences, preamble)
+3. If valid JSON with `speech` (string or null) and `insistence` ("low"/"mid"/"high"), use those values
+4. Fallback: treat the entire text as speech with default `insistence: "mid"` (backward compatible)
+5. If `speech` is null or silence marker → classify as silence
+6. Apply speech cleaning pipeline to the `speech` value:
+   a. Detect history hallucination (text starting with `- [数字s]` or `[数字s]`) → discard
+   b. Strip speaker prefixes (`[你]:`, `[Gemini]:`, `**你**：`, `**Claude**：`) → remove
+   c. Strip parenthetical actions (`（等了一秒）`, `(turns to X)`) → remove
+   d. Check minimum length (< 4 chars) → discard as silence
+7. `finishReason: "max_tokens"` → treat as speech (not error)
+
+Negotiation and voting modes are parsed directly by their respective modules, not by the normalization layer.
 
 ### 8. Runner
 
@@ -299,10 +329,13 @@ One iteration executes in the following order:
 6. Convert remaining errors to silence.
 7. Normalize and deduplicate all responses.
 8. Commit through the domain reducer.
-9. If gap collision detected → run negotiation:
-   a. Build perspective-specific history for each collider.
-   b. Run multi-round insist/yield negotiation.
-   c. If winner → replay their utterance through the reducer.
+9. If gap collision detected → run four-tier negotiation:
+   a. Build perspective-specific history for all participants (colliders + bystanders).
+   b. Tier 1: compare pre-declared insistence levels (zero API calls).
+   c. Tier 2: if tied, run multi-round three-level negotiation (max 3 rounds).
+   d. Tier 3: if still tied and bystanders exist, run bystander voting.
+   e. Tier 4: random tiebreak as ultimate fallback.
+   f. If winner → replay their utterance through the reducer.
 10. Return new state, events, and debug info.
 
 ## Project Structure
@@ -314,8 +347,8 @@ src/                          # Framework-agnostic core (pnpm root)
   negotiation/                # Multi-round collision resolution
   history/                    # Perspective-specific transcript projection
   prompting/                  # Prompt templates, builders, renderer
-    templates/                # Pure constant templates (reaction, negotiation)
-    builders/                 # Variable preparation + rendering (reaction, negotiation)
+    templates/                # Pure constant templates (reaction, negotiation, voting)
+    builders/                 # Variable preparation + rendering (reaction, negotiation, voting)
     render.ts                 # Strict {{slot}} renderer
     constants.ts              # Token limits
   model-gateway/              # Gateway interface, dummy + smart-dummy + ZenMux
