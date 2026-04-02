@@ -5,6 +5,7 @@
 This document defines the implementation architecture for AI Roundtable. It is the source of truth for system design and module boundaries.
 
 Related docs:
+- `docs/PROMPTING.md` — complete prompting specification (prompt structure, history format, templates, normalization)
 - `docs/PROVIDER.md` — provider integration notes, API gotchas, model behavior observations
 
 ## Scope
@@ -127,50 +128,18 @@ Key behaviors:
 
 ### 4. History Projector
 
+> **Format specification**: `docs/PROMPTING.md` → "Projected History Format" section defines the exact rendering format, all event types, perspective variations, and tier-specific wording.
+
 The `history` module converts canonical events into perspective-specific transcript text, formatted as a markdown list for LLM readability.
 
 This module owns the **projected history** portion of the prompt only. It must not embed current-turn questions, behavior rules, or negotiation directives. Those belong to the prompting layer.
 
-Output format:
+Implementation:
 
-- Each event is a markdown list item: `- [timestamp] summary`
-- Details within an event use 2-space indented continuation lines
-- Quoted speech uses markdown blockquote (`> `) inside list item indentation
-- Resolved collisions merge with the winner's speech into a single list item (the next `sentence_committed` is consumed and not rendered separately)
-
-Example output (yielder's perspective, Tier 1 resolution):
-
-```markdown
-- [0.0s] 讨论开始 — 话题：AI意识
-- [1.0s] **DeepSeek**：
-  > 开场白。
-- [2.0s] 你和 Claude 同时开口了，Claude 的发言意愿更强，Claude 先说了
-  你想说但没说出来的：
-  > 我有不同看法。
-  Claude 说：
-  > 我要反驳——AI没有主观体验。
-```
-
-Resolution summary varies by tier and perspective:
-
-| Tier | Winner | Yielder | Bystander |
-|------|--------|---------|-----------|
-| 1 | X 发言意愿没你高，你先说了 | X 的发言意愿更强，X 先说了 | X 的发言意愿最强，X 先说了 |
-| 2 | 经过协商你获得了发言权 | 经过协商 X 获得了发言权 | 经过协商 X 获得了发言权 |
-| 3 | 大家投票让你先说 | 大家投票让 X 先说 | 你投票给了 X，X 先说了 |
-| 4 | 僵持不下，最终你先说了 | 僵持不下，最终 X 先说了 | 僵持不下，最终 X 先说了 |
-
-Resolved collision event sequence: `CollisionEvent → CollisionResolvedEvent → SentenceCommittedEvent → TurnEndedEvent`
-
-Responsibilities:
-
-- render completed speech: `- [3.5s] **DeepSeek**：` + blockquoted content
-- render resolved collisions: tier-aware summary + indented unsaid/said speech in blockquotes
-- render unresolved collisions: summary + participant's unsaid speech in blockquote
-- render silence annotations: `- [5.0s] 安静了 1 秒（累计 3 秒）`
-- replace the current agent's own name with first-person `你`
-- look-ahead to detect resolved vs unresolved collisions (collision followed by `collision_resolved` + `sentence_committed` = resolved; legacy path without `collision_resolved` also supported)
-- produce history that is reusable across prompt modes, without mode-specific directives
+- Processes events sequentially with lookahead to detect resolved collisions (`collision → collision_resolved → sentence_committed` merged into a single list item; legacy path without `collision_resolved` also supported)
+- Resolved collision event sequence: `CollisionEvent → CollisionResolvedEvent → SentenceCommittedEvent → TurnEndedEvent`
+- Replaces the current agent's own name with first-person `你`
+- Produces history reusable across prompt modes, without mode-specific directives
 
 History projection contract:
 
@@ -182,70 +151,44 @@ History projection contract:
 
 ### 5. Prompting
 
+> **Specification**: `docs/PROMPTING.md` — the authoritative reference for prompt structure, history projection format, all templates, hints, and normalization rules. This section covers implementation details.
+
 The `prompting` module converts projected history into gateway-ready call inputs. It separates constant text (templates) from runtime variable preparation (builders).
 
-Prompt contract:
+Every agent call has three semantic parts: **system prompt** (role + rules), **projected history** (perspective-specific transcript), and **turn directive** (current instruction + hints). The boundary is strict: "what has happened" belongs to history; "what to do now" belongs to the turn directive.
 
-- Semantically, every agent call has **three parts**:
-  - **System prompt**: stable role + behavioral rules
-  - **Projected history**: perspective-specific markdown transcript of prior events
-  - **Turn directive**: the instruction for this call, including any mode-specific situational hints
-- Transport-wise, the model gateway currently receives **two text channels**:
-  - `systemPrompt`
-  - `userPromptText`
-- `userPromptText` is the serialized combination of:
-  - projected history
-  - a mode-specific separator or framing block when needed
-  - the turn directive
-- Optional situational hints do not form a separate architectural part. They belong inside the **turn directive** block.
-- The source of truth for exact **system prompt** and **turn directive** wording lives in code templates. Architecture docs define structure and ownership boundaries, not verbatim copies of every prompt variant.
+Three prompt modes: **reaction** (speech decision), **negotiation** (insistence declaration), **voting** (bystander vote).
 
 Structure:
 
-- `prompting/templates/reaction.ts` — pure constant template for the reaction system prompt, rules array, and collision notice. Uses `{{slot}}` placeholders. Instructs models to output structured JSON.
-- `prompting/templates/negotiation.ts` — pure constant template for the negotiation system prompt, collision description, mention hint, round summaries, and deadlock notice. Instructs models to output JSON insistence level.
-- `prompting/templates/voting.ts` — pure constant template for the bystander voting system prompt. Instructs models to output JSON vote.
-- `prompting/render.ts` — strict slot renderer: replaces `{{key}}` placeholders, throws on missing variables.
-- `prompting/builders/reaction.ts` — prepares variables (agent name, other names, topic, collision context, @mention detection, starvation count) and renders the reaction prompt via templates.
-- `prompting/builders/negotiation.ts` — prepares variables (discussion history, @mention detection, starvation count, round summaries, deadlock context) and renders the negotiation prompt via templates.
-- `prompting/builders/voting.ts` — prepares variables (voter, candidates, discussion history) and renders the voting prompt via templates.
-- `prompting/mention-utils.ts` — @mention detection utility shared by reaction and negotiation builders.
-- `prompting/constants.ts` — token limits (REACTION_MAX_TOKENS = 250, NEGOTIATION_MAX_TOKENS = 30, VOTING_MAX_TOKENS = 30).
-- `prompting/builder.ts` — re-export shim for backwards compatibility.
+- `prompting/templates/` — pure constant templates with `{{slot}}` placeholders for each mode
+- `prompting/builders/` — runtime variable preparation and prompt assembly for each mode
+- `prompting/render.ts` — strict slot renderer: replaces `{{key}}` placeholders via `/\{\{(\w+)\}\}/g`, throws on missing variables
+- `prompting/compose.ts` — `composeUserPrompt()` joins projected history + `\n\n` + turn directive; if history is empty, returns turn directive only
+- `prompting/mention-utils.ts` — `wasMentionedAfterLastSpeech()` detects `@AgentName` in projected history via string position comparison: finds last `@{name}` occurrence and compares against last `**你**：` or `你说：` position
+- `prompting/constants.ts` — token limits (reaction: 250, negotiation: 30, voting: 30)
+- `prompting/builder.ts` — re-export shim for backwards compatibility
 
-Responsibilities:
+Reaction builder (`builders/reaction.ts`):
 
-- provide the shared system prompt (rules maintained as an array constant, joined at render time)
-- build reaction-mode inputs
-- build negotiation-mode inputs (extracted from the negotiation module)
-- keep `projected history` and `turn directive` conceptually separate, even when serialized into one `userPromptText` string for transport
-- append collision context when consecutive collisions have occurred
-- define token limits
+- `ReactionParams` carries: sessionId, iterationId, agentId, agentName, allNames, topic, projectedHistory, collisionContext (streak + frequent colliders), consecutiveCollisionLosses, abortSignal
+- `buildSystemPrompt()` renders the system template with agent name, other names (filtered), topic, and rules array (each prefixed with `- `)
+- `buildTurnDirective()` assembles parts in order: mention hint → starvation hint → `---\n请用 JSON 格式回复。` → collision notice (if streak > 0)
+- `buildReactionInput()` orchestrates: calls `wasMentionedAfterLastSpeech()` for mention hint, checks `consecutiveCollisionLosses >= 2` for starvation hint, composes final `ModelCallInput`
 
-Key system prompt rules:
+Negotiation builder (`builders/negotiation.ts`):
 
-- Reply in structured JSON: `{ "speech": "...", "insistence": "low" | "mid" | "high" }`, `speech: null` for silence
-- `insistence` is a pre-declared self-assessment of how much the agent wants to persist if someone else is also speaking
-- No action descriptions or parentheticals
-- Don't mimic history format (no `**你**：` prefix)
-- Multiple simultaneous speakers = nobody heard; don't rush
-- `**你**` in history = yourself
-- Say your complete thought in one response
+- `buildTurnDirective()` assembles parts in order: collision description (who collided + agent's utterance) → mention hint → starvation hint → previous round summaries (insistence labels: low→"让步", mid→"犹豫", high→"坚持", self→"你") → deadlock context → question
+- `buildNegotiationInput()` accepts `consecutiveCollisionLosses` parameter threaded from engine via `starvationCounts` map
 
-Turn directive rules:
+Voting builder (`builders/voting.ts`):
 
-- The turn directive is the only prompt part that asks the model to decide or speak now
-- Reaction mode turn directive asks for a JSON response (speech + insistence)
-- Negotiation mode turn directive asks for a JSON insistence level declaration
-- Voting mode turn directive asks for a JSON vote for a candidate
-- Collision reminders, @mention reminders, starvation hints, round summaries, and deadlock notes are part of the turn directive, not part of projected history
-- Builders may assemble the turn directive from multiple template fragments, but the final prompt contract still treats it as one semantic part
+- Minimal: renders system template with voter name and topic, turn directive lists candidate names
 
-Ownership boundaries:
+Engine integration:
 
-- `history/*` owns projected history rendering and markdown format
-- `prompting/templates/*` owns exact system prompt and turn directive wording
-- `prompting/builders/*` owns runtime slot filling and the final composition into gateway-ready fields
+- `buildAgentCall()` in `engine.ts` computes both `collisionContext` (via `buildCollisionContext()`, walks recent collision streak) and `consecutiveCollisionLosses` (via `countConsecutiveCollisionLosses()`, walks events backward to last win/speech)
+- Before calling `negotiateCollision()`, engine builds a `starvationCounts: Map<string, number>` for all collision candidates, passed through to `runNegotiationRound()` → `buildNegotiationInput()`
 
 ### 6. Model Gateway
 
@@ -264,23 +207,17 @@ Preset configurations:
 
 ### 7. Normalization
 
+> **Rules specification**: `docs/PROMPTING.md` → "Response Normalization Rules" section defines what constitutes silence, how JSON is extracted, and the speech cleaning rules.
+
 The `normalization` module translates raw model outputs into domain-usable results.
 
-Structured output parsing (reaction mode):
+Implementation notes:
 
-1. `finishReason: "error"` / `"cancelled"` → error (will be retried by engine)
-2. Attempt to extract JSON object from the raw text (handles code fences, preamble)
-3. If valid JSON with `speech` (string or null) and `insistence` ("low"/"mid"/"high"), use those values
-4. Fallback: treat the entire text as speech with default `insistence: "mid"` (backward compatible)
-5. If `speech` is null or silence marker → classify as silence
-6. Apply speech cleaning pipeline to the `speech` value:
-   a. Detect history hallucination (text starting with `- [数字s]` or `[数字s]`) → discard
-   b. Strip speaker prefixes (`[你]:`, `[Gemini]:`, `**你**：`, `**Claude**：`) → remove
-   c. Strip parenthetical actions (`（等了一秒）`, `(turns to X)`) → remove
-   d. Check minimum length (< 4 chars) → discard as silence
-7. `finishReason: "max_tokens"` → treat as speech (not error)
-
-Negotiation and voting modes are parsed directly by their respective modules, not by the normalization layer.
+- `normalizeOutput()` dispatches by `CallMode`: reaction mode goes through `normalizeReaction()`, negotiation/voting modes are parsed directly by their respective modules
+- `extractJson()` handles markdown code fences and locates the outermost `{ ... }` for JSON.parse
+- `cleanSpeechText()` applies the cleaning pipeline (hallucination detection → prefix stripping → parenthetical removal → minimum length check)
+- `finishReason: "error"` / `"cancelled"` → `type: "error"` (engine will retry then convert to silence)
+- `finishReason: "max_tokens"` → treat as speech (not error)
 
 ### 8. Runner
 
@@ -366,8 +303,10 @@ ui/                           # React application (EXPERIMENTAL — known issues
     components/               # Setup, discussion, roundtable, list views
 
 docs/
-  ARCHITECTURE.md             # This file
+  ARCHITECTURE.md             # This file — system design and implementation
+  PROMPTING.md                # Prompt spec — wording, history format, normalization rules
   PROVIDER.md                 # Provider integration notes
+  ROADMAP.md                  # Planned work and priorities
 ```
 
 ## Development Commands

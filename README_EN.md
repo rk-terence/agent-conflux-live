@@ -103,6 +103,7 @@ Core engine complete with all tests passing. Collision negotiation mechanism wor
 ## Docs
 
 - [System Architecture](./docs/ARCHITECTURE.md) — module boundaries, data flow, design constraints
+- [Prompting Specification](./docs/PROMPTING.md) — prompt structure, history format, template wording, normalization rules
 - [Provider Integration Notes](./docs/PROVIDER.md) — API gotchas, model behavior observations
 - [Roadmap](./docs/ROADMAP.md) — planned features
 

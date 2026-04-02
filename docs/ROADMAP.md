@@ -65,6 +65,13 @@ Open questions:
 - [ ] 增加讨论热度 / 节奏的可视化
 - [ ] 完成移动端适配
 
+## Thinking Model Integration
+
+- [ ] 调研思考模型（Gemini 2.5 Flash/Pro 等）的 max_tokens 策略：当前 10x 乘数在投票等短输出场景仍可能不够，思考开销不可控
+- [ ] 在 gateway 层捕获 reasoning content（API 响应中的独立字段），扩展 ModelCallOutput 和日志记录
+- [ ] 将思考内容纳入日志（.log 和 .jsonl），用于观察模型的内部推理过程——对社会实验的分析有独立价值
+- [ ] 评估是否在 UI 中展示思考过程（折叠面板或独立视图）
+
 ## Cost And Scalability
 
 - [ ] 对较早历史做摘要压缩，只保留近期完整文本

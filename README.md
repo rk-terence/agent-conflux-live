@@ -103,6 +103,7 @@ ui/                           # React 应用（实验性，已知问题待修，
 ## 文档
 
 - [系统架构](./docs/ARCHITECTURE.md) — 模块边界、数据流、设计约束
+- [Prompt 规范](./docs/PROMPTING.md) — Prompt 结构、对话历史格式、模板文案、归一化规则
 - [Provider 集成笔记](./docs/PROVIDER.md) — API 踩坑、模型行为观察
 - [Roadmap](./docs/ROADMAP.md) — 后续规划
 
