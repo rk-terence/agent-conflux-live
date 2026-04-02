@@ -13,19 +13,19 @@ Using OpenAI-compatible protocol (`https://zenmux.ai/api/v1/chat/completions`).
 
 ### Key Gotchas
 
-- **API key encoding**: Browser `fetch` rejects non-ISO-8859-1 characters in headers. API keys pasted from Chinese IME may contain invisible Unicode chars. Gateway strips non-printable ASCII on construction.
-- **Reasoning tokens eat max_tokens budget**: Thinking models (Gemini 2.5 Flash/Pro) spend most of `max_completion_tokens` on reasoning tokens, leaving almost nothing for actual output. Solution: models with `thinking: true` in the preset get 10x max_tokens to compensate.
+- **API key encoding**: API keys pasted from Chinese IME may contain invisible Unicode chars. The provider adapter should strip non-printable ASCII on construction.
+- **Reasoning tokens eat max_tokens budget**: Thinking models (Gemini 2.5 Flash/Pro) spend most of `max_completion_tokens` on reasoning tokens, leaving almost nothing for actual output. Solution: thinking models should be configured with ~10x the normal max_tokens to compensate.
 - **`reasoning: { enabled: false }` not universally supported**: Gemini 2.5 Pro rejects this parameter (HTTP 400). We no longer send it — instead we increase the token budget.
 - **Model slug format**: `provider/model-name`, e.g. `deepseek/deepseek-chat`, `google/gemini-2.5-flash`.
-- **Error responses can be HTML**: HTTP 500 from some models returns a full HTML error page. Gateway truncates error bodies > 200 chars and tries to extract JSON error messages.
+- **Error responses can be HTML**: HTTP 500 from some models returns a full HTML error page. The provider adapter should truncate error bodies > 200 chars and try to extract JSON error messages.
 
 ### Current Strategy: Full Response
 
-The gateway returns the model's complete response — no sentence extraction or stop sequences. Models are instructed via system prompt to produce their full speech in one response.
+The LLM client returns the model's complete response — no sentence extraction or stop sequences. Models are instructed via system prompt to produce their full speech in one response.
 
 ## Model Presets
 
-> These are current default examples. The actual preset definitions in code are the source of truth.
+> Recommended `AgentConfig` configurations. These are reference examples — adjust model slugs as providers update their offerings.
 
 ### Budget (for dev/iteration)
 
@@ -72,16 +72,11 @@ Based on observed behavior with real API:
 Problems discovered and fixed at the normalization layer:
 
 - **DeepSeek action descriptions**: `（等了一秒，确认安静后）`, `（转向 Qwen）` — stripped by parenthetical regex.
-- **DeepSeek history hallucination**: In continuation mode (now removed), DeepSeek would fabricate other agents' speech in timestamped history format like `[2.5s] Gemini 说：「...」`. Detected and discarded by regex.
+- **DeepSeek history hallucination**: DeepSeek sometimes fabricates other agents' speech in timestamped history format like `[2.5s] Gemini 说：「...」`. Detected and discarded by the history hallucination check in utterance cleaning.
 - **Gemini speaker prefix echo**: Mimics history format in output, e.g. `[你]: 没关系。`. Stripped by speaker prefix regex.
 - **Gemini fragments**: With thinking models, reasoning tokens consume the budget, leaving outputs like `嗯，` or `DeepSeek`. Filtered by minimum length (4 chars).
 - **Cross-turn repetition**: Both DeepSeek and Qwen repeat the same sentence across different turns when context doesn't change much. Detected by scanning all committed sentences and collision utterances in the session.
 
-## CLI Quick Reference
+## Provider Testing
 
-See README for full CLI usage. Commonly used for provider testing:
-
-```bash
-npx tsx src/cli/run.ts --gateway smart-dummy   # offline test
-npx tsx src/cli/run.ts --preset premium        # premium models
-```
+See README for setup. Use the session API with different `AgentConfig` presets to test provider behavior.

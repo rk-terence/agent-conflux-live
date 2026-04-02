@@ -33,8 +33,9 @@
 
 ## 技术栈
 
-- TypeScript（框架无关的核心引擎）
-- React + Vite + Tailwind CSS（UI）
+- TypeScript（strict mode，ESM modules）
+- Node.js ≥ 20
+- Vitest（测试）
 - [ZenMux](https://zenmux.ai) 作为 LLM 聚合网关（一个 API key 访问所有模型）
 
 ## 快速开始
@@ -42,70 +43,41 @@
 ```bash
 # 安装依赖
 pnpm install
-cd ui && pnpm install && cd ..
 
 # 运行测试
 pnpm test
-
-# CLI 方式运行（推荐用于开发调优）
-echo "ZENMUX_API_KEY=your-key" > .env
-npx tsx src/cli/run.ts --topic "AI 会取代人类吗？"
-
-# 离线测试（无需 API key）
-npx tsx src/cli/run.ts --gateway smart-dummy
-
-# 启动 UI（实验性，已知问题较多，建议优先使用 CLI）
-cd ui && pnpm dev
-```
-
-### CLI 工具
-
-CLI 是目前最推荐的开发方式。它提供：
-
-- 实时彩色终端输出（发言突出显示，碰撞和协商缩进展示）
-- 详细日志文件（`.log` 人类可读 + `.jsonl` 结构化分析）
-- 每个模型收到的完整 prompt 和原始 response
-- 协商过程的逐轮记录
-
-```bash
-npx tsx src/cli/run.ts --help              # 查看所有选项
-npx tsx src/cli/run.ts --preset premium    # 使用更强的模型
-npx tsx src/cli/run.ts --duration 120      # 设置讨论时长
 ```
 
 ### 使用真实模型
 
 1. 注册 [ZenMux](https://zenmux.ai) 获取 API key
 2. 创建 `.env` 文件：`ZENMUX_API_KEY=your-key`
-3. `npx tsx src/cli/run.ts`（推荐 CLI 方式运行）
 
 ## 项目结构
 
 ```
-src/                          # 框架无关的核心引擎
-  domain/                     # 状态类型、reducer、会话初始化
-  engine/                     # 单次迭代编排器
-  negotiation/                # 碰撞协商：多轮 insist/yield 决策
-  history/                    # 视角相关的对话历史投影
-  prompting/                  # Prompt 模板、渲染器、构建器
-  model-gateway/              # 网关接口、Dummy + SmartDummy + ZenMux
-  normalization/              # 原始输出清洗与分类
-  runner/                     # 讨论循环驱动
-  cli/                        # CLI 运行器 + 日志记录
+src/
+  types.ts                  所有共享类型定义
+  config.ts                 SessionConfig 配置、默认值、校验
+  index.ts                  入口：创建会话、运行循环、输出结果
 
-ui/                           # React 应用（实验性，已知问题待修，独立 pnpm 项目）
+  core/                     主迭代循环、碰撞解决、打断、去重
+  state/                    会话状态、agent 状态、虚拟时间
+  prompt/                   Prompt 组装、系统 prompt、turn directive、历史投影、提示、模板
+  llm/                      LLMClient 接口、各 provider 适配器、重试
+  normalize/                按模式分发的归一化（JSON 提取、发言清洗、各模式归一化）
+  util/                     Token 计数、句子分割、名称列表格式化
 ```
 
 ## 当前状态
 
-核心引擎已完成，测试全部通过。碰撞协商机制有效运作，讨论能正常推进。CLI 工具提供完整的 prompt/response 日志，用于迭代优化。
+正在基于全新的设计规范进行代码重写。
 
 ## 文档
 
-- [系统架构](./docs/ARCHITECTURE.md) — 模块边界、数据流、设计约束
-- [Prompt 规范](./docs/PROMPTING.md) — Prompt 结构、对话历史格式、模板文案、归一化规则
+- [设计规范](./docs/DESIGN.md) — 系统行为、语义约束、prompt 文案、历史渲染格式、归一化规则
+- [系统架构](./docs/ARCHITECTURE.md) — 模块边界、类型定义、数据流、算法
 - [Provider 集成笔记](./docs/PROVIDER.md) — API 踩坑、模型行为观察
-- [Roadmap](./docs/ROADMAP.md) — 后续规划
 
 ## License
 

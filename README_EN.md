@@ -33,8 +33,9 @@ This is a social experiment between large language models.
 
 ## Tech Stack
 
-- TypeScript (framework-agnostic core engine)
-- React + Vite + Tailwind CSS (UI)
+- TypeScript (strict mode, ESM modules)
+- Node.js ≥ 20
+- Vitest (testing)
 - [ZenMux](https://zenmux.ai) as LLM aggregation gateway (one API key for all models)
 
 ## Quick Start
@@ -42,70 +43,41 @@ This is a social experiment between large language models.
 ```bash
 # Install dependencies
 pnpm install
-cd ui && pnpm install && cd ..
 
 # Run tests
 pnpm test
-
-# CLI mode (recommended for development)
-echo "ZENMUX_API_KEY=your-key" > .env
-npx tsx src/cli/run.ts --topic "Will AI replace human jobs?"
-
-# Offline testing (no API key needed)
-npx tsx src/cli/run.ts --gateway smart-dummy
-
-# Start UI (experimental, known issues — CLI recommended)
-cd ui && pnpm dev
-```
-
-### CLI Tool
-
-The CLI is the recommended way to develop and iterate. It provides:
-
-- Real-time colored terminal output (speech prominent, collisions and negotiations indented)
-- Detailed log files (`.log` human-readable + `.jsonl` for programmatic analysis)
-- Full prompts and raw responses for every model call
-- Round-by-round negotiation records
-
-```bash
-npx tsx src/cli/run.ts --help              # all options
-npx tsx src/cli/run.ts --preset premium    # use stronger models
-npx tsx src/cli/run.ts --duration 120      # set discussion duration
 ```
 
 ### Using Real Models
 
 1. Sign up at [ZenMux](https://zenmux.ai) to get an API key
 2. Create a `.env` file: `ZENMUX_API_KEY=your-key`
-3. `npx tsx src/cli/run.ts` (CLI recommended)
 
 ## Project Structure
 
 ```
-src/                          # Framework-agnostic core engine
-  domain/                     # State types, reducer, session init
-  engine/                     # Single-iteration orchestrator
-  negotiation/                # Collision resolution: multi-round insist/yield
-  history/                    # Perspective-specific transcript projection
-  prompting/                  # Prompt templates, renderer, builders
-  model-gateway/              # Gateway interface, Dummy + SmartDummy + ZenMux
-  normalization/              # Raw output cleaning and classification
-  runner/                     # Discussion loop driver
-  cli/                        # CLI runner + logging
+src/
+  types.ts                  All shared type definitions
+  config.ts                 SessionConfig schema, defaults, validation
+  index.ts                  Entry point — create session, run loop, emit results
 
-ui/                           # React application (experimental, known issues pending, separate pnpm project)
+  core/                     Discussion loop, collision resolution, interruption, dedup
+  state/                    Session state, agent state, virtual clock
+  prompt/                   Prompt assembly, system prompts, turn directives, history projection, hints, template
+  llm/                      LLMClient interface, per-provider adapters, retry
+  normalize/                Mode-based normalization (JSON extraction, utterance cleaning, per-mode normalizers)
+  util/                     Token counting, sentence splitting, name list formatting
 ```
 
 ## Current Status
 
-Core engine complete with all tests passing. Collision negotiation mechanism works effectively and discussions progress smoothly. The CLI tool provides full prompt/response logging for iterative optimization.
+Code rewrite in progress based on new design specification.
 
 ## Docs
 
-- [System Architecture](./docs/ARCHITECTURE.md) — module boundaries, data flow, design constraints
-- [Prompting Specification](./docs/PROMPTING.md) — prompt structure, history format, template wording, normalization rules
+- [Design Specification](./docs/DESIGN.md) — system behavior, semantic constraints, prompt wording, history rendering, normalization rules
+- [System Architecture](./docs/ARCHITECTURE.md) — module boundaries, type definitions, data flow, algorithms
 - [Provider Integration Notes](./docs/PROVIDER.md) — API gotchas, model behavior observations
-- [Roadmap](./docs/ROADMAP.md) — planned features
 
 ## License
 
