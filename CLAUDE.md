@@ -16,10 +16,10 @@ They should be checked (and updated if outdated) before every `git commit`.
 After completing each round of development work, follow this procedure **before** committing or pushing:
 
 1. Update docs if the changes affect them.
-2. Request a Codex review of the current diff (via `codex:codex-rescue` subagent, using `--fresh` for the first review). If the reviewer is unavailable, proceed directly to step 4.
+2. Run `/adversarial-review` (or `/adversarial-review [focus text]`) to start a fresh Codex adversarial review. If the reviewer is unavailable, proceed directly to step 4.
 3. Read the review feedback. If there are reasonable suggestions:
    - Implement the fixes.
-   - Report what was fixed back to Codex (via `codex:codex-rescue` with `--resume` to preserve review context).
-   - Read Codex's response. Repeat this step until Codex has no further concerns.
+   - Run `/adversarial-review --resume [focus text]` to report fixes and get re-checked. The `--resume` flag continues the most recent Codex task thread in this repo; omitting it starts a new review. Avoid running other Codex tasks between the initial review and the re-check.
+   - Repeat this step until Codex has no further concerns.
    - If a suggestion conflicts with the docs, defer to the doc authority matrix above.
 4. Commit (and push if requested).

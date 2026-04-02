@@ -1,0 +1,16 @@
+{
+  "attribution": {
+    "commit": "Co-Authored-By: Claude <noreply@anthropic.com>\nCo-Authored-By: Codex <codex@openai.com>"
+  },
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:zenmux.ai)",
+      "WebSearch",
+      "Bash(npx vitest:*)",
+      "Bash(pnpm test:*)",
+      "Skill(codex:rescue)",
+      "Bash(node */codex-companion.mjs *)",
+      "Bash(*adversarial-review/run.sh*)"
+    ]
+  }
+}
