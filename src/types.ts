@@ -138,14 +138,28 @@ export interface PromptSet {
   systemPrompt: string;
   userPrompt: string;
   maxTokens: number;
+  historyChars: number;
+  directiveChars: number;
 }
 
 // ── LLM Types ──
+
+export interface ChatRequestMeta {
+  callId: string;
+  turn: number;
+  agent: string;
+  mode: PromptMode;
+  attempt: number;
+  provider: string;
+  historyChars: number;
+  directiveChars: number;
+}
 
 export interface ChatRequest {
   systemPrompt: string;
   userPrompt: string;
   maxTokens: number;
+  _meta?: ChatRequestMeta;
 }
 
 export interface LLMClient {
@@ -182,6 +196,38 @@ export interface DefenseResult {
   thought: string | null;
 }
 
+// ── Extended Normalization Result Types (with metadata) ──
+
+import type { NormalizeMeta } from "./log-types.js";
+
+export interface ReactionResultWithMeta extends ReactionResult {
+  _normMeta: NormalizeMeta;
+  _cleanMeta: {
+    historyHallucination: boolean;
+    speakerPrefixStripped: boolean;
+    actionStripped: boolean;
+    silenceByLength: boolean;
+    silenceTokenDetected: boolean;
+    originalUtterance: string | null;
+  } | null;
+}
+
+export interface NegotiationResultWithMeta extends NegotiationResult {
+  _normMeta: NormalizeMeta;
+}
+
+export interface VotingResultWithMeta extends VotingResult {
+  _normMeta: NormalizeMeta;
+}
+
+export interface JudgeResultWithMeta extends JudgeResult {
+  _normMeta: NormalizeMeta;
+}
+
+export interface DefenseResultWithMeta extends DefenseResult {
+  _normMeta: NormalizeMeta;
+}
+
 // ── Prompt Context Types ──
 
 export interface NegotiationContext {
@@ -204,6 +250,13 @@ export interface DefenseContext {
 
 // ── Observer Interface ──
 
+import type {
+  NormalizeResultInfo,
+  UtteranceFilterInfo,
+  CollisionRoundInfo,
+  InterruptionEvalInfo,
+} from "./log-types.js";
+
 export interface SessionObserver {
   onTurnStart?(turn: number, virtualTime: number): void;
   onReactionResults?(results: Map<string, ReactionResult>): void;
@@ -213,4 +266,8 @@ export interface SessionObserver {
   onTurnComplete?(record: TurnRecord): void;
   onThoughtUpdate?(agent: string, thought: string): void;
   onSessionEnd?(reason: string, session: SessionState): void;
+  onNormalizeResult?(info: NormalizeResultInfo): void;
+  onUtteranceFilterResult?(info: UtteranceFilterInfo): void;
+  onCollisionRound?(info: CollisionRoundInfo): void;
+  onInterruptionEvaluation?(info: InterruptionEvalInfo): void;
 }

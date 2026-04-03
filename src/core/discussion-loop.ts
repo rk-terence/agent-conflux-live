@@ -1,14 +1,18 @@
+import { randomUUID } from "node:crypto";
 import type {
   SessionState,
   LLMClient,
   SessionObserver,
   AgentState,
   ReactionResult,
+  ReactionResultWithMeta,
   InsistenceLevel,
   CollisionInfo,
   SpeechRecord,
   SilenceRecord,
+  PromptMode,
 } from "../types.js";
+import type { LogContext } from "../log-context.js";
 import { buildReactionPrompt } from "../prompt/prompt-builder.js";
 import { normalizeReaction } from "../normalize/reaction.js";
 import { withRetry, RetryExhaustedError } from "../llm/retry.js";
@@ -45,6 +49,7 @@ export async function runDiscussion(
   session: SessionState,
   clients: Map<string, LLMClient>,
   observer?: SessionObserver,
+  logCtx?: LogContext,
 ): Promise<void> {
   try {
     while (true) {
@@ -56,7 +61,7 @@ export async function runDiscussion(
         return;
       }
 
-      await runOneTurn(session, clients, observer);
+      await runOneTurn(session, clients, observer, logCtx);
     }
   } catch (err) {
     session.endReason = "fatal_error";
@@ -69,6 +74,7 @@ async function runOneTurn(
   session: SessionState,
   clients: Map<string, LLMClient>,
   observer?: SessionObserver,
+  logCtx?: LogContext,
 ): Promise<void> {
   observer?.onTurnStart?.(session.currentTurn, session.virtualTime);
 
@@ -80,24 +86,68 @@ async function runOneTurn(
   const agentNames = session.agents.map((a) => a.name);
   const reactions = new Map<string, ReactionResult>();
 
+  // Track per-agent call IDs and normalization metadata for filter logging
+  const callIds = new Map<string, string>();
+  const normMetas = new Map<string, ReactionResultWithMeta>();
+
   const reactionResults = await Promise.all(
     eligible.map(async (agent) => {
       const prompt = buildReactionPrompt(agent, session);
       const client = clients.get(agent.name)!;
+      const callId = randomUUID();
+      callIds.set(agent.name, callId);
 
-      let result: ReactionResult;
+      // Attach _meta for API hook logging
+      const request = {
+        ...prompt,
+        _meta: {
+          callId,
+          turn: session.currentTurn,
+          agent: agent.name,
+          mode: "reaction" as PromptMode,
+          attempt: 0,
+          provider: agent.config.provider,
+          historyChars: prompt.historyChars,
+          directiveChars: prompt.directiveChars,
+        },
+      };
+
+      let result: ReactionResultWithMeta;
       try {
-        const raw = await withRetry(() => client.chat(prompt), session.config.apiRetries);
+        const raw = await withRetry(
+          () => client.chat(request),
+          session.config.apiRetries,
+          (attempt) => { request._meta!.attempt = attempt; },
+        );
         result = normalizeReaction(raw, agentNames);
       } catch (err) {
         if (err instanceof RetryExhaustedError) {
-          result = { utterance: null, insistence: "mid", thought: null };
+          result = {
+            utterance: null, insistence: "mid", thought: null,
+            _normMeta: { rawKind: "empty", jsonExtracted: false, fallbackPath: "default", truncationSuspected: false, thoughtType: "missing" },
+            _cleanMeta: null,
+          };
         } else {
           throw err;
         }
       }
 
-      return { agent, result };
+      normMetas.set(agent.name, result);
+
+      // Emit normalize_result
+      observer?.onNormalizeResult?.({
+        callId,
+        agent: agent.name,
+        mode: "reaction",
+        rawKind: result._normMeta.rawKind,
+        jsonExtracted: result._normMeta.jsonExtracted,
+        fallbackPath: result._normMeta.fallbackPath,
+        truncationSuspected: result._normMeta.truncationSuspected,
+        thoughtType: result._normMeta.thoughtType,
+        payload: { utterance: result.utterance, insistence: result.insistence, thought: result.thought },
+      });
+
+      return { agent, result: result as ReactionResult };
     }),
   );
 
@@ -105,10 +155,45 @@ async function runOneTurn(
     reactions.set(agent.name, result);
   }
 
-  // 3. Verbatim dedup
+  // 3. Verbatim dedup — with observability
   for (const [name, result] of reactions) {
-    if (result.utterance !== null && isDuplicate(result.utterance, session.log)) {
-      result.utterance = null;
+    const callId = callIds.get(name) ?? "";
+    const meta = normMetas.get(name);
+
+    if (result.utterance !== null) {
+      const dup = isDuplicate(result.utterance, session.log);
+
+      // Emit utterance_filter_result for every agent that had a non-null utterance
+      observer?.onUtteranceFilterResult?.({
+        callId,
+        agent: name,
+        originalUtterance: meta?._cleanMeta?.originalUtterance ?? result.utterance,
+        cleanedUtterance: dup ? null : result.utterance,
+        historyHallucination: false,
+        speakerPrefixStripped: meta?._cleanMeta?.speakerPrefixStripped ?? false,
+        actionStripped: meta?._cleanMeta?.actionStripped ?? false,
+        silenceByLength: false,
+        silenceTokenDetected: meta?._cleanMeta?.silenceTokenDetected ?? false,
+        dedupDropped: dup,
+      });
+
+      if (dup) {
+        result.utterance = null;
+      }
+    } else if (meta?._cleanMeta) {
+      // Utterance was cleaned to null — emit filter result showing why
+      observer?.onUtteranceFilterResult?.({
+        callId,
+        agent: name,
+        originalUtterance: meta._cleanMeta.originalUtterance ?? "",
+        cleanedUtterance: null,
+        historyHallucination: meta._cleanMeta.historyHallucination,
+        speakerPrefixStripped: meta._cleanMeta.speakerPrefixStripped,
+        actionStripped: meta._cleanMeta.actionStripped,
+        silenceByLength: meta._cleanMeta.silenceByLength,
+        silenceTokenDetected: meta._cleanMeta.silenceTokenDetected,
+        dedupDropped: false,
+      });
     }
   }
 
@@ -147,9 +232,9 @@ async function runOneTurn(
   if (speakers.length === 0) {
     handleSilence(session, observer);
   } else if (speakers.length === 1) {
-    await handleSpeech(session, clients, speakers[0], null, observer);
+    await handleSpeech(session, clients, speakers[0], null, observer, undefined, logCtx);
   } else {
-    await handleCollision(session, clients, speakers, observer);
+    await handleCollision(session, clients, speakers, observer, logCtx);
   }
 
   // 8. Advance turn counter
@@ -185,6 +270,7 @@ async function handleSpeech(
   collisionInfo: CollisionInfo | null,
   observer?: SessionObserver,
   overrideTimestamp?: number,
+  logCtx?: LogContext,
 ): Promise<void> {
   resetSilenceStreak(session);
   resetCollisionLosses(speaker.agent);
@@ -205,6 +291,7 @@ async function handleSpeech(
       { agent: speaker.agent, name: speaker.name, utterance: speaker.utterance },
       effectiveInsistence,
       observer,
+      logCtx,
     );
   }
 
@@ -238,6 +325,7 @@ async function handleCollision(
   clients: Map<string, LLMClient>,
   speakers: Speaker[],
   observer?: SessionObserver,
+  logCtx?: LogContext,
 ): Promise<void> {
   observer?.onCollisionStart?.(speakers.map((s) => s.name));
 
@@ -247,7 +335,7 @@ async function handleCollision(
   // Snapshot original reaction insistence before negotiation mutates speakers
   const originalInsistence = new Map(speakers.map((s) => [s.name, s.insistence]));
 
-  const collisionInfo = await resolveCollision(session, clients, speakers, observer);
+  const collisionInfo = await resolveCollision(session, clients, speakers, observer, logCtx);
   const winner = speakers.find((s) => s.name === collisionInfo.winner)!;
 
   // Restore original reaction insistence so SpeechRecord captures the pre-negotiation value
@@ -268,7 +356,7 @@ async function handleCollision(
   // Advance virtual time for collision itself
   advanceVirtualTime(session, speakers.length * session.config.collisionTimeCost);
 
-  await handleSpeech(session, clients, winner, collisionInfo, observer, turnTimestamp);
+  await handleSpeech(session, clients, winner, collisionInfo, observer, turnTimestamp, logCtx);
 }
 
 function shouldEnd(session: SessionState): string | null {

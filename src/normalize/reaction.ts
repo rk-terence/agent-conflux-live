@@ -1,25 +1,36 @@
-import type { InsistenceLevel, ReactionResult } from "../types.js";
+import type { InsistenceLevel, ReactionResultWithMeta } from "../types.js";
+import type { NormalizeMeta } from "../log-types.js";
 import { extractJSON } from "./json-extract.js";
 import { cleanUtterance } from "./utterance-clean.js";
 
 const VALID_INSISTENCE = new Set<string>(["low", "mid", "high"]);
 const SILENCE_TOKENS = new Set([null, "", "[silence]", "[沉默]"]);
 
-export function normalizeReaction(raw: string, agentNames: string[]): ReactionResult {
+export function normalizeReaction(raw: string, agentNames: string[]): ReactionResultWithMeta {
   // 1. Empty/whitespace → silence
   if (!raw || raw.trim().length === 0) {
-    return { utterance: null, insistence: "mid", thought: null };
+    return {
+      utterance: null, insistence: "mid", thought: null,
+      _normMeta: { rawKind: "empty", jsonExtracted: false, fallbackPath: "none", truncationSuspected: false, thoughtType: "missing" },
+      _cleanMeta: null,
+    };
   }
 
   // 2. Attempt JSON extraction
   let utterance: string | null = null;
   let insistence: InsistenceLevel = "mid";
   let thought: string | null = null;
-  let fromJSON = false;
+  let jsonExtracted = false;
+  let rawKind: NormalizeMeta["rawKind"] = "plain_text";
+  let fallbackPath: NormalizeMeta["fallbackPath"] = "none";
 
+  // Check truncation: raw contains { but extractJSON failed to find valid JSON
   const json = extractJSON(raw);
+  const truncationSuspected = json === null && raw.includes("{") && !raw.includes("}");
+
   if (json && "utterance" in json) {
-    fromJSON = true;
+    jsonExtracted = true;
+    rawKind = "json";
     utterance = json.utterance === null || json.utterance === undefined
       ? null
       : String(json.utterance);
@@ -32,24 +43,56 @@ export function normalizeReaction(raw: string, agentNames: string[]): ReactionRe
     utterance = raw.trim();
     insistence = "mid";
     thought = null;
+    fallbackPath = "raw_text";
   }
 
+  const thoughtType: NormalizeMeta["thoughtType"] = thought === null
+    ? (json && "thought" in json ? "null" : "missing")
+    : "string";
+
   // 3. Silence detection
+  let silenceTokenDetected = false;
   if (SILENCE_TOKENS.has(utterance)) {
-    return { utterance: null, insistence, thought };
+    silenceTokenDetected = true;
+    return {
+      utterance: null, insistence, thought,
+      _normMeta: { rawKind, jsonExtracted, fallbackPath, truncationSuspected, thoughtType },
+      _cleanMeta: { historyHallucination: false, speakerPrefixStripped: false, actionStripped: false, silenceByLength: false, silenceTokenDetected, originalUtterance: utterance },
+    };
   }
 
   // 4. Apply cleanUtterance pipeline
   const cleaned = cleanUtterance(utterance!, agentNames);
+  const cleanMeta = {
+    historyHallucination: cleaned.historyHallucination,
+    speakerPrefixStripped: cleaned.speakerPrefixStripped,
+    actionStripped: cleaned.actionStripped,
+    silenceByLength: cleaned.silenceByLength,
+    silenceTokenDetected: false,
+    originalUtterance: utterance!,
+  };
+
   if (cleaned.text === null) {
     if (cleaned.historyHallucination) {
       // History hallucination → silence with no thought update
-      return { utterance: null, insistence, thought: null };
+      return {
+        utterance: null, insistence, thought: null,
+        _normMeta: { rawKind, jsonExtracted, fallbackPath, truncationSuspected, thoughtType },
+        _cleanMeta: cleanMeta,
+      };
     }
     // Other cleaning nullified → silence (thought preserved)
-    return { utterance: null, insistence, thought };
+    return {
+      utterance: null, insistence, thought,
+      _normMeta: { rawKind, jsonExtracted, fallbackPath, truncationSuspected, thoughtType },
+      _cleanMeta: cleanMeta,
+    };
   }
 
   // 5. Return cleaned result
-  return { utterance: cleaned.text, insistence, thought };
+  return {
+    utterance: cleaned.text, insistence, thought,
+    _normMeta: { rawKind, jsonExtracted, fallbackPath, truncationSuspected, thoughtType },
+    _cleanMeta: cleanMeta,
+  };
 }

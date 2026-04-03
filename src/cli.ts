@@ -9,6 +9,14 @@ import { createSession, requestStop } from "./state/session.js";
 import { createClient } from "./llm/client.js";
 import type { ApiCallInfo } from "./llm/client.js";
 import { runDiscussion } from "./core/discussion-loop.js";
+import { LogContext } from "./log-context.js";
+import { SCHEMA_VERSION } from "./log-types.js";
+import type {
+  NormalizeResultInfo,
+  UtteranceFilterInfo,
+  CollisionRoundInfo,
+  InterruptionEvalInfo,
+} from "./log-types.js";
 import type {
   SessionObserver,
   SessionState,
@@ -105,15 +113,23 @@ function parseArgs(argv: string[]): CliArgs {
 class FileLogger {
   private stream: ReturnType<typeof createWriteStream>;
   readonly filePath: string;
+  private runId: string;
 
-  constructor(filePath: string) {
+  constructor(filePath: string, runId: string) {
     this.filePath = filePath;
+    this.runId = runId;
     mkdirSync(dirname(filePath), { recursive: true });
     this.stream = createWriteStream(filePath, { flags: "a" });
   }
 
   log(event: string, data: Record<string, unknown> = {}): void {
-    const entry = { ts: new Date().toISOString(), event, ...data };
+    const entry = {
+      ts: new Date().toISOString(),
+      event,
+      schema_version: SCHEMA_VERSION,
+      run_id: this.runId,
+      ...data,
+    };
     this.stream.write(JSON.stringify(entry) + "\n");
   }
 
@@ -136,6 +152,17 @@ const magenta = (t: string) => c("\x1b[35m", t);
 
 function preview(text: string, max: number): string {
   return text.length > max ? text.slice(0, max) + "…" : text;
+}
+
+// ── Run status mapping ──────────────────────────────────────────────────────
+
+type RunStatus = "completed" | "fatal_error" | "manual_stop" | "abandoned";
+
+function mapEndReasonToStatus(reason: string | null): RunStatus {
+  if (reason === "fatal_error") return "fatal_error";
+  if (reason === "manual_stop") return "manual_stop";
+  if (reason === null) return "abandoned";
+  return "completed"; // silence_timeout, duration_limit
 }
 
 // ── Console + File Observer ──────────────────────────────────────────────────
@@ -230,6 +257,66 @@ function createObserver(logger: FileLogger): SessionObserver {
         })),
       });
     },
+
+    // ── New observability events ──
+
+    onNormalizeResult(info: NormalizeResultInfo) {
+      logger.log("normalize_result", {
+        call_id: info.callId,
+        agent: info.agent,
+        mode: info.mode,
+        raw_kind: info.rawKind,
+        json_extracted: info.jsonExtracted,
+        fallback_path: info.fallbackPath,
+        truncation_suspected: info.truncationSuspected,
+        thought_type: info.thoughtType,
+        payload: info.payload,
+      });
+    },
+
+    onUtteranceFilterResult(info: UtteranceFilterInfo) {
+      logger.log("utterance_filter_result", {
+        call_id: info.callId,
+        agent: info.agent,
+        original_utterance: info.originalUtterance,
+        cleaned_utterance: info.cleanedUtterance,
+        history_hallucination: info.historyHallucination,
+        speaker_prefix_stripped: info.speakerPrefixStripped,
+        action_stripped: info.actionStripped,
+        silence_by_length: info.silenceByLength,
+        silence_token_detected: info.silenceTokenDetected,
+        dedup_dropped: info.dedupDropped,
+      });
+    },
+
+    onCollisionRound(info: CollisionRoundInfo) {
+      logger.log("collision_round", {
+        turn: info.turn,
+        tier: info.tier,
+        round: info.round,
+        candidates: info.candidates,
+        insistences: info.insistences,
+        eliminated: info.eliminated,
+        winner: info.winner,
+      });
+    },
+
+    onInterruptionEvaluation(info: InterruptionEvalInfo) {
+      logger.log("interruption_evaluation", {
+        turn: info.turn,
+        speaker: info.speaker,
+        spoken_part_chars: info.spokenPartChars,
+        unspoken_part_chars: info.unspokenPartChars,
+        listeners: info.listeners,
+        interrupt_requested: info.interruptRequested,
+        urgencies: info.urgencies,
+        representative: info.representative,
+        representative_urgency: info.representativeUrgency,
+        resolution_method: info.resolutionMethod,
+        defense_yielded: info.defenseYielded,
+        final_result: info.finalResult,
+      });
+    },
   };
 }
 
@@ -237,34 +324,64 @@ function createObserver(logger: FileLogger): SessionObserver {
 
 function createApiCallHook(logger: FileLogger): (info: ApiCallInfo) => void {
   return (info: ApiCallInfo) => {
-    if (info.error) {
-      logger.log("api_call_error", {
+    const meta = info.request._meta;
+
+    if (info.phase === "started") {
+      logger.log("api_call_started", {
+        call_id: meta?.callId,
+        turn: meta?.turn,
         agent: info.agent,
+        mode: meta?.mode,
+        attempt: meta?.attempt,
+        provider: meta?.provider,
         model: info.model,
-        request: {
-          systemPrompt: info.request.systemPrompt,
-          userPrompt: info.request.userPrompt,
-          maxTokens: info.request.maxTokens,
-        },
-        error: info.error,
-        durationMs: info.durationMs,
+        max_tokens: info.request.maxTokens,
+        system_prompt_chars: info.request.systemPrompt.length,
+        user_prompt_chars: info.request.userPrompt.length,
+        history_chars: meta?.historyChars,
+        directive_chars: meta?.directiveChars,
       });
-      process.stderr.write(
-        `  ${red(`✗ API error [${info.agent}/${info.model}]: ${preview(info.error, 100)}`)}\n`,
-      );
     } else {
-      logger.log("api_call", {
-        agent: info.agent,
-        model: info.model,
-        request: {
-          systemPrompt: info.request.systemPrompt,
-          userPrompt: info.request.userPrompt,
-          maxTokens: info.request.maxTokens,
-        },
-        rawResponse: info.rawResponse,
-        content: info.content,
-        durationMs: info.durationMs,
-      });
+      // phase === "finished"
+      if (info.error) {
+        logger.log("api_call_finished", {
+          call_id: meta?.callId,
+          turn: meta?.turn,
+          agent: info.agent,
+          mode: meta?.mode,
+          attempt: meta?.attempt,
+          provider: meta?.provider,
+          model: info.model,
+          status: "error",
+          duration_ms: info.durationMs,
+          http_status: info.httpStatus,
+          error_message: info.error,
+          raw_response: info.rawResponse,
+        });
+        process.stderr.write(
+          `  ${red(`✗ API error [${info.agent}/${info.model}]: ${preview(info.error, 100)}`)}\n`,
+        );
+      } else {
+        logger.log("api_call_finished", {
+          call_id: meta?.callId,
+          turn: meta?.turn,
+          agent: info.agent,
+          mode: meta?.mode,
+          attempt: meta?.attempt,
+          provider: meta?.provider,
+          model: info.model,
+          status: "success",
+          duration_ms: info.durationMs,
+          http_status: info.httpStatus,
+          finish_reason: info.finishReason,
+          prompt_tokens: info.promptTokens,
+          completion_tokens: info.completionTokens,
+          reasoning_tokens: info.reasoningTokens,
+          content_chars: info.content?.length,
+          content: info.content,
+          raw_response: info.rawResponse,
+        });
+      }
     }
   };
 }
@@ -301,10 +418,16 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // 3. Set up file logger
+  // 3. Set up log context and file logger
+  const logCtx = new LogContext();
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
   const logFile = resolve(logDir, `discussion-${ts}.ndjson`);
-  const logger = new FileLogger(logFile);
+  const logger = new FileLogger(logFile, logCtx.runId);
+
+  // Emit run_started as the first event
+  logger.log("run_started", {
+    config_path: configPath,
+  });
 
   // Log config (redact API keys)
   logger.log("session_config", {
@@ -353,11 +476,24 @@ async function main(): Promise<void> {
   // 7. Run the discussion
   const observer = createObserver(logger);
   try {
-    await runDiscussion(session, clients, observer);
+    await runDiscussion(session, clients, observer, logCtx);
+
+    // Emit terminal run_finished marker
+    const status = mapEndReasonToStatus(session.endReason);
+    logger.log("run_finished", {
+      status,
+      end_reason: session.endReason,
+      terminal: true,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`\n${red(`Fatal error: ${msg}`)}\n`);
     logger.log("fatal_error", { error: msg, stack: err instanceof Error ? err.stack : undefined });
+    logger.log("run_finished", {
+      status: "fatal_error" as RunStatus,
+      end_reason: msg,
+      terminal: true,
+    });
   }
 
   // 8. Close logger & print footer

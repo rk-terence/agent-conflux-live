@@ -5,9 +5,14 @@ export class RetryExhaustedError extends Error {
   }
 }
 
-export async function withRetry<T>(fn: () => Promise<T>, retries: number): Promise<T> {
+export async function withRetry<T>(
+  fn: () => Promise<T>,
+  retries: number,
+  onAttempt?: (attempt: number) => void,
+): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
+    onAttempt?.(attempt);
     try {
       return await fn();
     } catch (err: unknown) {

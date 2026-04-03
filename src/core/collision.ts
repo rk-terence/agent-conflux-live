@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type {
   SessionState,
   SessionObserver,
@@ -10,7 +11,9 @@ import type {
   NegotiationContext,
   NegotiationResult,
   VotingResult,
+  PromptMode,
 } from "../types.js";
+import type { LogContext } from "../log-context.js";
 import { buildNegotiationPrompt, buildVotingPrompt } from "../prompt/prompt-builder.js";
 import { normalizeNegotiation } from "../normalize/negotiation.js";
 import { normalizeVoting } from "../normalize/voting.js";
@@ -31,6 +34,7 @@ export async function resolveCollision(
   clients: Map<string, LLMClient>,
   speakers: Speaker[],
   observer?: SessionObserver,
+  logCtx?: LogContext,
 ): Promise<CollisionInfo> {
   const colliders: ColliderEntry[] = speakers.map((s) => ({
     agent: s.name,
@@ -40,6 +44,18 @@ export async function resolveCollision(
 
   // Tier 1 — Insistence comparison
   const tier1Result = tryTier1(speakers);
+
+  // Log tier 1 evaluation
+  observer?.onCollisionRound?.({
+    turn: session.currentTurn,
+    tier: 1,
+    round: 1,
+    candidates: speakers.map((s) => s.name),
+    insistences: speakers.map((s) => ({ agent: s.name, insistence: s.insistence })),
+    eliminated: [],
+    winner: tier1Result ? tier1Result.name : null,
+  });
+
   if (tier1Result) {
     return {
       colliders,
@@ -68,10 +84,43 @@ export async function resolveCollision(
         const prompt = buildNegotiationPrompt(candidate.agent, session, ctx);
         const client = clients.get(candidate.name)!;
 
+        const callId = randomUUID();
+        const request = {
+          ...prompt,
+          _meta: {
+            callId,
+            turn: session.currentTurn,
+            agent: candidate.name,
+            mode: "negotiation" as PromptMode,
+            attempt: 0,
+            provider: candidate.agent.config.provider,
+            historyChars: prompt.historyChars,
+            directiveChars: prompt.directiveChars,
+          },
+        };
+
         let result: NegotiationResult;
         try {
-          const raw = await withRetry(() => client.chat(prompt), session.config.apiRetries);
-          result = normalizeNegotiation(raw);
+          const raw = await withRetry(
+            () => client.chat(request),
+            session.config.apiRetries,
+            (attempt) => { request._meta!.attempt = attempt; },
+          );
+          const withMeta = normalizeNegotiation(raw);
+          result = withMeta;
+
+          // Emit normalize_result
+          observer?.onNormalizeResult?.({
+            callId,
+            agent: candidate.name,
+            mode: "negotiation",
+            rawKind: withMeta._normMeta.rawKind,
+            jsonExtracted: withMeta._normMeta.jsonExtracted,
+            fallbackPath: withMeta._normMeta.fallbackPath,
+            truncationSuspected: withMeta._normMeta.truncationSuspected,
+            thoughtType: withMeta._normMeta.thoughtType,
+            payload: { insistence: withMeta.insistence, thought: withMeta.thought },
+          });
         } catch (err) {
           if (err instanceof RetryExhaustedError) {
             result = { insistence: "low", thought: null };
@@ -94,6 +143,33 @@ export async function resolveCollision(
 
     // Evaluate
     const uniqueHighest = getUniqueHighest(candidates);
+
+    // Determine eliminations
+    let eliminated: string[] = [];
+    let nextCandidates = candidates;
+
+    if (uniqueHighest) {
+      eliminated = candidates.filter((c) => c.name !== uniqueHighest.name).map((c) => c.name);
+    } else if (!candidates.every((c) => c.insistence === "low")) {
+      const minLevel = Math.min(...candidates.map((c) => INSISTENCE_ORDER[c.insistence]));
+      const remaining = candidates.filter((c) => INSISTENCE_ORDER[c.insistence] > minLevel);
+      if (remaining.length >= 1) {
+        eliminated = candidates.filter((c) => INSISTENCE_ORDER[c.insistence] === minLevel).map((c) => c.name);
+        nextCandidates = remaining;
+      }
+    }
+
+    // Log tier 2 round
+    observer?.onCollisionRound?.({
+      turn: session.currentTurn,
+      tier: 2,
+      round,
+      candidates: candidates.map((c) => c.name),
+      insistences: roundDecisions,
+      eliminated,
+      winner: uniqueHighest ? uniqueHighest.name : (nextCandidates.length === 1 ? nextCandidates[0].name : null),
+    });
+
     if (uniqueHighest) {
       return {
         colliders,
@@ -138,10 +214,43 @@ export async function resolveCollision(
         const prompt = buildVotingPrompt(voter, session, candidateNames);
         const client = clients.get(voter.name)!;
 
+        const callId = randomUUID();
+        const request = {
+          ...prompt,
+          _meta: {
+            callId,
+            turn: session.currentTurn,
+            agent: voter.name,
+            mode: "voting" as PromptMode,
+            attempt: 0,
+            provider: voter.config.provider,
+            historyChars: prompt.historyChars,
+            directiveChars: prompt.directiveChars,
+          },
+        };
+
         let result: VotingResult;
         try {
-          const raw = await withRetry(() => client.chat(prompt), session.config.apiRetries);
-          result = normalizeVoting(raw, candidateNames);
+          const raw = await withRetry(
+            () => client.chat(request),
+            session.config.apiRetries,
+            (attempt) => { request._meta!.attempt = attempt; },
+          );
+          const withMeta = normalizeVoting(raw, candidateNames);
+          result = withMeta;
+
+          // Emit normalize_result
+          observer?.onNormalizeResult?.({
+            callId,
+            agent: voter.name,
+            mode: "voting",
+            rawKind: withMeta._normMeta.rawKind,
+            jsonExtracted: withMeta._normMeta.jsonExtracted,
+            fallbackPath: withMeta._normMeta.fallbackPath,
+            truncationSuspected: withMeta._normMeta.truncationSuspected,
+            thoughtType: withMeta._normMeta.thoughtType,
+            payload: { vote: withMeta.vote, thought: withMeta.thought },
+          });
         } catch (err) {
           if (err instanceof RetryExhaustedError) {
             result = { vote: null, thought: null };
@@ -165,26 +274,53 @@ export async function resolveCollision(
       }
     }
 
+    let tier3Winner: string | null = null;
     if (tally.size > 0) {
       const maxVotes = Math.max(...tally.values());
       const winners = [...tally.entries()].filter(([, count]) => count === maxVotes);
       if (winners.length === 1) {
-        const winnerName = winners[0][0];
-        const winnerCandidate = candidates.find((c) => c.name === winnerName)!;
-        return {
-          colliders,
-          winner: winnerName,
-          winnerInsistence: winnerCandidate.insistence,
-          resolutionTier: 3,
-          votes,
-        };
+        tier3Winner = winners[0][0];
       }
-      // Tie → fall through to Tier 4
     }
+
+    // Log tier 3 round
+    observer?.onCollisionRound?.({
+      turn: session.currentTurn,
+      tier: 3,
+      round: 1,
+      candidates: candidateNames,
+      insistences: candidates.map((c) => ({ agent: c.name, insistence: c.insistence })),
+      eliminated: tier3Winner ? candidateNames.filter((n) => n !== tier3Winner) : [],
+      winner: tier3Winner,
+    });
+
+    if (tier3Winner) {
+      const winnerCandidate = candidates.find((c) => c.name === tier3Winner)!;
+      return {
+        colliders,
+        winner: tier3Winner,
+        winnerInsistence: winnerCandidate.insistence,
+        resolutionTier: 3,
+        votes,
+      };
+    }
+    // Tie → fall through to Tier 4
   }
 
   // Tier 4 — Random
   const randomWinner = candidates[Math.floor(Math.random() * candidates.length)];
+
+  // Log tier 4
+  observer?.onCollisionRound?.({
+    turn: session.currentTurn,
+    tier: 4,
+    round: 1,
+    candidates: candidates.map((c) => c.name),
+    insistences: candidates.map((c) => ({ agent: c.name, insistence: c.insistence })),
+    eliminated: candidates.filter((c) => c.name !== randomWinner.name).map((c) => c.name),
+    winner: randomWinner.name,
+  });
+
   return {
     colliders,
     winner: randomWinner.name,

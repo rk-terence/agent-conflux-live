@@ -20,6 +20,8 @@ src/
   cli.ts                    CLI entry point — load config, run discussion, write logs
   index.ts                  Programmatic API — create session, run loop, emit results
   types.ts                  All shared type definitions
+  log-types.ts              Log event payload types, NormalizeMeta, SCHEMA_VERSION
+  log-context.ts            LogContext class (run identity)
   config.ts                 SessionConfig schema, defaults, validation
 
   core/
@@ -233,6 +235,8 @@ interface PromptSet {
   systemPrompt: string;
   userPrompt: string;     // projectedHistory + "\n\n" + turnDirective (or just turnDirective if history empty)
   maxTokens: number;
+  historyChars: number;   // length of history portion
+  directiveChars: number; // length of directive portion
 }
 ```
 
@@ -347,9 +351,9 @@ else → record.utterance
 
 ### Main Loop (`discussion-loop.ts`)
 
-`runDiscussion(session: SessionState, clients: Map<string, LLMClient>, observer?: SessionObserver): Promise<void>`
+`runDiscussion(session: SessionState, clients: Map<string, LLMClient>, observer?: SessionObserver, logCtx?: LogContext): Promise<void>`
 
-The loop runs iterations until an end condition is met. The optional `observer` receives callbacks at key points for real-time output (see Observer section). Fatal errors call `observer.onSessionEnd` before stopping.
+The loop runs iterations until an end condition is met. The optional `observer` receives callbacks at key points for real-time output and structured logging (see Observer section). The optional `logCtx` provides run identity (`runId`) for correlating events. Fatal errors call `observer.onSessionEnd` before stopping.
 
 **One iteration** (pseudocode):
 
@@ -513,7 +517,7 @@ The session tracks consecutive collision turns for the collision notice hint:
 
 ## Collision Resolution (`collision.ts`)
 
-`resolveCollision(session, clients, speakers): Promise<CollisionInfo>`
+`resolveCollision(session, clients, speakers, observer?, logCtx?): Promise<CollisionInfo>`
 
 Input: array of `{ agent, utterance, insistence }` from reaction results (2+ entries).
 
@@ -583,7 +587,7 @@ CollisionInfo {
 
 ### Evaluation Flow
 
-`evaluateInterruption(session, clients, speaker, effectiveInsistence: InsistenceLevel): Promise<InterruptionInfo | null>`
+`evaluateInterruption(session, clients, speaker, effectiveInsistence: InsistenceLevel, observer?, logCtx?): Promise<InterruptionInfo | null>`
 
 1. Attempt split: `splitUtterance(speaker.utterance, config.interruptionThreshold, tokenCount)`
 2. If split is null → return null (no interruption possible)
@@ -800,7 +804,9 @@ Uses regex: `@{exactName}(?=\W|$)` where `exactName` is the agent's configured n
 
 ### Utterance Cleaning (`utterance-clean.ts`)
 
-`cleanUtterance(text: string, agentNames: string[]): string | null`
+`cleanUtterance(text: string, agentNames: string[]): CleanUtteranceResult`
+
+Returns `{ text: string | null, historyHallucination: boolean, speakerPrefixStripped: boolean, actionStripped: boolean, silenceByLength: boolean }`. The boolean flags indicate which cleaning steps fired, enabling structured logging of filtering decisions.
 
 Pipeline (applied in order; if any step produces null, return null):
 
@@ -819,7 +825,7 @@ Pipeline (applied in order; if any step produces null, return null):
 
 ### Per-Mode Normalization
 
-Each normalizer function takes the raw LLM response string and returns the mode-specific result type.
+Each normalizer function takes the raw LLM response string and returns the mode-specific result type with attached normalization metadata (`_normMeta: NormalizeMeta`). The `NormalizeMeta` includes `rawKind` (empty/json/plain_text), `jsonExtracted` (boolean), `fallbackPath` (none/raw_text/keyword/default), `truncationSuspected` (boolean), and `thoughtType` (string/null/missing). This metadata enables structured logging of normalization decisions without parsing strings twice.
 
 #### Reaction (`reaction.ts`)
 
@@ -899,10 +905,22 @@ interface ChatRequest {
   systemPrompt: string;
   userPrompt: string;
   maxTokens: number;
+  _meta?: ChatRequestMeta;  // observability metadata, not sent to API
+}
+
+interface ChatRequestMeta {
+  callId: string;         // UUID for correlating start/finish/normalize events
+  turn: number;
+  agent: string;
+  mode: PromptMode;
+  attempt: number;        // retry attempt (0-based)
+  provider: string;
+  historyChars: number;
+  directiveChars: number;
 }
 ```
 
-Returns the raw text content of the model's response.
+Returns the raw text content of the model's response. The `_meta` field carries observability context that the API hook reads for structured logging; it is not included in the API payload.
 
 ### Provider Abstraction (`providers/`)
 
@@ -918,13 +936,13 @@ A factory function creates the appropriate client:
 
 ### Instrumentation Hook
 
-The optional `ApiCallHook` callback fires on every API call (success or failure), receiving an `ApiCallInfo` object with the full request, raw response (including `reasoning_content`/`reasoning` for thinking models, token usage), and timing. The hook is best-effort: exceptions are silently caught so telemetry cannot alter request semantics or cause spurious retries.
+The optional `ApiCallHook` callback fires twice per API call: once with `phase: "started"` before the HTTP request, and once with `phase: "finished"` after the response (or error). The `ApiCallInfo` object carries the full request (including `_meta` for context), and on finish: raw response, usage tokens (`promptTokens`, `completionTokens`, `reasoningTokens`), `finishReason`, `httpStatus`, and timing. The hook is best-effort: exceptions are silently caught so telemetry cannot alter request semantics or cause spurious retries.
 
 ### Retry Wrapper (`retry.ts`)
 
-`withRetry<T>(fn: () => Promise<T>, retries: number): Promise<T>`
+`withRetry<T>(fn: () => Promise<T>, retries: number, onAttempt?: (attempt: number) => void): Promise<T>`
 
-Retries on network errors, rate limits (with backoff), API errors, and request cancellations (e.g., aborted connections, timeouts). After exhausting retries, throws `RetryExhaustedError`. The caller (discussion loop) catches this and applies mode-specific fallback.
+Retries on network errors, rate limits (with backoff), API errors, and request cancellations (e.g., aborted connections, timeouts). The optional `onAttempt` callback fires before each attempt (0-based), allowing callers to update `_meta.attempt` for logging. After exhausting retries, throws `RetryExhaustedError`. The caller (discussion loop) catches this and applies mode-specific fallback.
 
 ---
 
@@ -966,10 +984,22 @@ interface SessionObserver {
   onTurnComplete?(record: TurnRecord): void;
   onThoughtUpdate?(agent: string, thought: string): void;
   onSessionEnd?(reason: string, session: SessionState): void;
+  onNormalizeResult?(info: NormalizeResultInfo): void;
+  onUtteranceFilterResult?(info: UtteranceFilterInfo): void;
+  onCollisionRound?(info: CollisionRoundInfo): void;
+  onInterruptionEvaluation?(info: InterruptionEvalInfo): void;
 }
 ```
 
 All callbacks are optional. The loop calls them at the corresponding points. Implementations may write to console, file, WebSocket, etc.
+
+The four new observability callbacks emit structured metadata:
+- `onNormalizeResult` — emitted after each normalization call with `NormalizeMeta` (raw_kind, json_extracted, fallback_path, truncation_suspected, thought_type) and the normalized payload
+- `onUtteranceFilterResult` — emitted for each reaction with cleaning/dedup decision booleans
+- `onCollisionRound` — emitted per collision resolution step (one per tier attempt) with candidates, insistences, eliminations, and winner
+- `onInterruptionEvaluation` — emitted after evaluating interruption with all listeners' judge results, representative selection, resolution method, and final outcome
+
+See `docs/LOGGING.md` for the full NDJSON event schema.
 
 ---
 
