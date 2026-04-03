@@ -73,6 +73,10 @@ First event in the log.
 | provider | string | Provider name |
 | model | string | Model ID |
 | max_tokens | number | Max tokens requested |
+| system_prompt | string | Full system prompt text |
+| user_prompt | string | Full user prompt text (history + directive) |
+| history | string | Projected history portion of user prompt |
+| directive | string | Turn directive portion of user prompt |
 | system_prompt_chars | number | System prompt length |
 | user_prompt_chars | number | User prompt length |
 | history_chars | number | History portion of user prompt |

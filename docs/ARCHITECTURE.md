@@ -244,6 +244,8 @@ interface PromptSet {
   systemPrompt: string;
   userPrompt: string;     // projectedHistory + "\n\n" + turnDirective (or just turnDirective if history empty)
   maxTokens: number;
+  history?: string;       // raw projected history string (for logging)
+  directive?: string;     // raw turn directive string (for logging)
   historyChars: number;   // length of history portion
   directiveChars: number; // length of directive portion
 }
@@ -924,6 +926,8 @@ interface ChatRequestMeta {
   mode: PromptMode;
   attempt: number;        // retry attempt (0-based)
   provider: string;
+  history?: string;       // raw projected history (for logging)
+  directive?: string;     // raw turn directive (for logging)
   historyChars: number;
   directiveChars: number;
 }

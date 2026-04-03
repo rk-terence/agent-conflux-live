@@ -45,6 +45,8 @@ export function buildReactionPrompt(agent: AgentState, session: SessionState): P
     systemPrompt,
     userPrompt: assembleUserPrompt(history, directive),
     maxTokens: 150,
+    history,
+    directive,
     historyChars: history.length,
     directiveChars: directive.length,
   };
@@ -63,6 +65,8 @@ export function buildNegotiationPrompt(
     systemPrompt,
     userPrompt: assembleUserPrompt(history, directive),
     maxTokens: 50,
+    history,
+    directive,
     historyChars: history.length,
     directiveChars: directive.length,
   };
@@ -81,6 +85,8 @@ export function buildVotingPrompt(
     systemPrompt,
     userPrompt: assembleUserPrompt(history, directive),
     maxTokens: 50,
+    history,
+    directive,
     historyChars: history.length,
     directiveChars: directive.length,
   };
@@ -103,6 +109,8 @@ export function buildJudgePrompt(
     systemPrompt,
     userPrompt: assembleUserPrompt(history, directive),
     maxTokens: 50,
+    history,
+    directive,
     historyChars: history.length,
     directiveChars: directive.length,
   };
@@ -125,6 +133,8 @@ export function buildDefensePrompt(
     systemPrompt,
     userPrompt: assembleUserPrompt(history, directive),
     maxTokens: 50,
+    history,
+    directive,
     historyChars: history.length,
     directiveChars: directive.length,
   };

@@ -138,6 +138,8 @@ export interface PromptSet {
   systemPrompt: string;
   userPrompt: string;
   maxTokens: number;
+  history?: string;
+  directive?: string;
   historyChars: number;
   directiveChars: number;
 }
@@ -151,6 +153,8 @@ export interface ChatRequestMeta {
   mode: PromptMode;
   attempt: number;
   provider: string;
+  history?: string;
+  directive?: string;
   historyChars: number;
   directiveChars: number;
 }

@@ -42,6 +42,10 @@ export interface ApiCallStartedEvent extends BaseEvent, PerCallFields {
   provider: string;
   model: string;
   max_tokens: number;
+  system_prompt?: string;
+  user_prompt?: string;
+  history?: string;
+  directive?: string;
   system_prompt_chars: number;
   user_prompt_chars: number;
   history_chars: number;

@@ -107,6 +107,8 @@ async function runOneTurn(
           mode: "reaction" as PromptMode,
           attempt: 0,
           provider: agent.config.provider,
+          history: prompt.history,
+          directive: prompt.directive,
           historyChars: prompt.historyChars,
           directiveChars: prompt.directiveChars,
         },
