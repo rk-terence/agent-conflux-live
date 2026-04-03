@@ -4,14 +4,16 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "agent-conflux": "dist/cli.js"
+    "agent-conflux": "dist/cli.js",
+    "agent-conflux-summarize": "dist/analysis/cli.js"
   },
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
     "start": "node dist/index.js",
-    "cli": "node dist/cli.js"
+    "cli": "node dist/cli.js",
+    "summarize": "node dist/analysis/cli.js"
   },
   "dependencies": {
     "openai": "^4.86.2"

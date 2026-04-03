@@ -71,6 +71,20 @@ node dist/cli.js examples/config.json --log-dir ./output
 
 The terminal shows a human-readable live discussion feed. A comprehensive NDJSON log file is also written to `logs/`, where every event carries a `run_id` and `schema_version`. The log records API call lifecycle, normalization paths, utterance cleaning decisions, round-by-round collision resolution, interruption evaluation details, and inner monologues. See [Logging Event Schema](./docs/LOGGING.md) for the full format.
 
+### Offline Log Analysis
+
+After a run, analyze the log offline to produce a structured summary with L0/L1 classification:
+
+```bash
+node dist/analysis/cli.js --input logs/discussion-xxx.ndjson
+```
+
+Outputs `run-summary.json` with event counts, API stats, normalization/filtering/collision/interruption aggregates, and:
+- **L0 Infra**: Did the run complete cleanly? (pass/fail)
+- **L1 Mechanics**: Were roundtable behaviors healthy? (pass/fail)
+
+See [Run Summary docs](./docs/RUN_SUMMARY.md) for details.
+
 ## Project Structure
 
 ```
@@ -86,6 +100,7 @@ src/
   llm/                      LLMClient interface, per-provider adapters, retry
   normalize/                Mode-based normalization (JSON extraction, utterance cleaning, per-mode normalizers)
   util/                     Token counting, sentence splitting, name list formatting
+  analysis/                 Offline log analysis: run summary generation, L0/L1 classification
 examples/
   config.json               Example configuration file
 ```
@@ -99,6 +114,7 @@ Core engine complete, CLI operational. Iterating on improvements.
 - [Design Specification](./docs/DESIGN.md) — system behavior, semantic constraints, prompt wording, history rendering, normalization rules
 - [System Architecture](./docs/ARCHITECTURE.md) — module boundaries, type definitions, data flow, algorithms
 - [Logging Event Schema](./docs/LOGGING.md) — NDJSON event schema, field definitions, event correlation
+- [Run Summary](./docs/RUN_SUMMARY.md) — offline analysis output schema, L0/L1 classification rules
 - [Provider Integration Notes](./docs/PROVIDER.md) — API gotchas, model behavior observations
 
 ## License

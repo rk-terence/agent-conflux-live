@@ -62,6 +62,15 @@ src/
     token-count.ts          Token counting (configurable, default: character heuristic)
     sentence-split.ts       Sentence boundary splitting for interruption
     name-list.ts            Name list formatting ("A 和 B" / "A、B 和 C")
+
+  analysis/                   Offline log analysis (Phase 2 feedback pipeline)
+    types.ts                Threshold constants, RunSummary interface, accumulator types
+    log-schema.ts           ParsedEvent discriminated union, event parser
+    read-log.ts             NDJSON reader
+    summarize-run.ts        Single-pass accumulator → RunSummary
+    classify-run.ts         L0/L1 rule-based classification
+    cli.ts                  CLI entrypoint (--input, --output)
+    __tests__/              Test fixtures and test suites
 ```
 
 ---

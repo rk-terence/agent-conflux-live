@@ -71,6 +71,20 @@ node dist/cli.js examples/config.json --log-dir ./output
 
 运行时，终端会输出人类可读的实时讨论过程；同时在 `logs/` 目录下生成 NDJSON 格式的完整日志文件，每个事件携带 `run_id` 和 `schema_version`，记录 API 调用生命周期、归一化路径、发言清洗决策、碰撞逐轮过程、打断评估细节和内心独白。日志格式详见 [日志事件规范](./docs/LOGGING.md)。
 
+### 离线日志分析
+
+运行结束后，可以对日志进行离线分析，生成结构化摘要和 L0/L1 分类：
+
+```bash
+node dist/analysis/cli.js --input logs/discussion-xxx.ndjson
+```
+
+输出 `run-summary.json`，包含事件计数、API 统计、归一化/过滤/碰撞/打断聚合，以及：
+- **L0 基础设施**：运行是否完整（pass/fail）
+- **L1 机制健康**：圆桌行为是否正常（pass/fail）
+
+详见 [运行摘要文档](./docs/RUN_SUMMARY.md)。
+
 ## 项目结构
 
 ```
@@ -86,6 +100,7 @@ src/
   llm/                      LLMClient 接口、各 provider 适配器、重试
   normalize/                按模式分发的归一化（JSON 提取、发言清洗、各模式归一化）
   util/                     Token 计数、句子分割、名称列表格式化
+  analysis/                 离线日志分析：运行摘要生成、L0/L1 分类
 examples/
   config.json               示例配置文件
 ```
@@ -99,6 +114,7 @@ examples/
 - [设计规范](./docs/DESIGN.md) — 系统行为、语义约束、prompt 文案、历史渲染格式、归一化规则
 - [系统架构](./docs/ARCHITECTURE.md) — 模块边界、类型定义、数据流、算法
 - [日志事件规范](./docs/LOGGING.md) — NDJSON 事件 schema、字段定义、事件关联方式
+- [运行摘要](./docs/RUN_SUMMARY.md) — 离线分析输出 schema、L0/L1 分类规则
 - [Provider 集成笔记](./docs/PROVIDER.md) — API 踩坑、模型行为观察
 
 ## License
