@@ -12,6 +12,7 @@ export interface AgentConfig {
   model: string;          // provider-specific model ID
   endpoint?: string;      // custom API endpoint (for OpenAI-compatible providers)
   apiKey?: string;        // falls back to environment variable if absent
+  thinkingModel?: boolean; // thinking models need ~10x max_tokens for reasoning overhead
 }
 
 export interface SessionConfig {
@@ -128,6 +129,7 @@ export interface SessionState {
   endReason: string | null;
   collisionStreak: number;
   collisionStreakColliders: string[];
+  stopRequested: boolean;
 }
 
 // ── Prompt Types ──

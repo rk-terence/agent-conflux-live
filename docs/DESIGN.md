@@ -349,7 +349,7 @@ Each event is a markdown list item:
 Formatting rules:
 - Timestamps: `[N.Ns]` format (one decimal)
 - Speaker names: **bold** when attributing speech (e.g., `**Name**：`, `**Name** 说：`, `**Name** 说了一半：`), plain in narrative text (e.g., "DeepSeek 说话时被 Qwen 打断了")
-- Quoted speech: `> ` (markdown blockquote) with 2-space indentation inside list item
+- Quoted speech: `> ` (markdown blockquote) with 2-space indentation inside list item. Multi-line utterances have each line prefixed with `> ` inside the indented block.
 - Self-reference: `**你**` when used as a speaker label (e.g., `**你**：`), plain `你` in all other contexts (narrative text, descriptive labels like "你想说但没说出来的：")
 - For 2-person groups: "A 和 B"; for 3+: "A、B 和 C"
 
@@ -607,7 +607,8 @@ Auxiliary mechanisms:
 4. `utterance === null`, empty string, `[silence]`, `[沉默]` → silence
 5. Utterance cleaning:
    - History hallucination: starts with `- [Ns]` or `[Ns]` → treat as silence with no thought update
-   - Strip speaker prefix: `[Agent]:`, `**Agent**：`, `Agent 说：`, `**Agent** 说：`, `**Agent** 说了一半：` formats
+   - Strip speaker prefix: `[Agent]：`, `[Agent]:`, `**Agent**：`, `Agent 说：`, `**Agent** 说：`, `**Agent** 说了一半：` formats
+   - Re-check history hallucination after prefix stripping (catches cases like `**DeepSeek**：[2.5s] 说：...`)
    - Strip parenthetical actions: `（...）` and `(...)`
    - Minimum length: < 4 characters → treat as silence
 

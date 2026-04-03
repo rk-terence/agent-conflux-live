@@ -22,13 +22,26 @@ export function buildConfig(input: SessionConfigInput): SessionConfig {
   const config: SessionConfig = {
     ...DEFAULT_CONFIG,
     ...input,
+    // Deep-copy agents so normalization doesn't mutate caller's input
+    agents: input.agents.map((a) => ({ ...a })),
   };
+  normalizeConfig(config);
   validateConfig(config);
   return config;
 }
 
-function validateConfig(config: SessionConfig): void {
-  if (!config.topic || config.topic.trim().length === 0) {
+/** Trim string fields in-place. Only called on owned copies (buildConfig). */
+function normalizeConfig(config: SessionConfig): void {
+  config.topic = config.topic?.trim();
+  for (const agent of config.agents ?? []) {
+    agent.name = agent.name?.trim();
+    agent.provider = agent.provider?.trim();
+    agent.model = agent.model?.trim();
+  }
+}
+
+export function validateConfig(config: SessionConfig): void {
+  if (!config.topic?.trim() || config.topic.trim().length === 0) {
     throw new Error("SessionConfig: topic is required");
   }
   if (!config.agents || config.agents.length < 2) {
@@ -36,45 +49,46 @@ function validateConfig(config: SessionConfig): void {
   }
   const names = new Set<string>();
   for (const agent of config.agents) {
-    if (!agent.name || agent.name.trim().length === 0) {
+    if (!agent.name?.trim() || agent.name.trim().length === 0) {
       throw new Error("AgentConfig: name is required");
     }
-    if (!agent.provider || agent.provider.trim().length === 0) {
+    if (!agent.provider?.trim() || agent.provider.trim().length === 0) {
       throw new Error(`AgentConfig(${agent.name}): provider is required`);
     }
-    if (!agent.model || agent.model.trim().length === 0) {
+    if (!agent.model?.trim() || agent.model.trim().length === 0) {
       throw new Error(`AgentConfig(${agent.name}): model is required`);
     }
-    if (names.has(agent.name)) {
-      throw new Error(`AgentConfig: duplicate agent name "${agent.name}"`);
+    const trimmedName = agent.name.trim();
+    if (names.has(trimmedName)) {
+      throw new Error(`AgentConfig: duplicate agent name "${trimmedName}"`);
     }
-    names.add(agent.name);
+    names.add(trimmedName);
   }
-  if (config.recentTierSize < 1) {
-    throw new Error("SessionConfig: recentTierSize must be >= 1");
+  if (!Number.isFinite(config.recentTierSize) || config.recentTierSize < 1 || !Number.isInteger(config.recentTierSize)) {
+    throw new Error("SessionConfig: recentTierSize must be an integer >= 1");
   }
-  if (config.mediumTierEnd < config.recentTierSize) {
-    throw new Error("SessionConfig: mediumTierEnd must be >= recentTierSize");
+  if (!Number.isFinite(config.mediumTierEnd) || config.mediumTierEnd < config.recentTierSize || !Number.isInteger(config.mediumTierEnd)) {
+    throw new Error("SessionConfig: mediumTierEnd must be an integer >= recentTierSize");
   }
-  if (config.silenceTimeout <= 0) {
-    throw new Error("SessionConfig: silenceTimeout must be > 0");
+  if (!Number.isFinite(config.silenceTimeout) || config.silenceTimeout <= 0) {
+    throw new Error("SessionConfig: silenceTimeout must be a finite number > 0");
   }
-  if (config.silenceBackoffCap <= 0) {
-    throw new Error("SessionConfig: silenceBackoffCap must be > 0");
+  if (!Number.isFinite(config.silenceBackoffCap) || config.silenceBackoffCap <= 0) {
+    throw new Error("SessionConfig: silenceBackoffCap must be a finite number > 0");
   }
-  if (config.tokenTimeCost <= 0) {
-    throw new Error("SessionConfig: tokenTimeCost must be > 0");
+  if (!Number.isFinite(config.tokenTimeCost) || config.tokenTimeCost <= 0) {
+    throw new Error("SessionConfig: tokenTimeCost must be a finite number > 0");
   }
-  if (config.collisionTimeCost <= 0) {
-    throw new Error("SessionConfig: collisionTimeCost must be > 0");
+  if (!Number.isFinite(config.collisionTimeCost) || config.collisionTimeCost <= 0) {
+    throw new Error("SessionConfig: collisionTimeCost must be a finite number > 0");
   }
-  if (config.interruptionThreshold <= 0) {
-    throw new Error("SessionConfig: interruptionThreshold must be > 0");
+  if (!Number.isFinite(config.interruptionThreshold) || config.interruptionThreshold <= 0) {
+    throw new Error("SessionConfig: interruptionThreshold must be a finite number > 0");
   }
-  if (config.maxNegotiationRounds < 1) {
-    throw new Error("SessionConfig: maxNegotiationRounds must be >= 1");
+  if (!Number.isFinite(config.maxNegotiationRounds) || config.maxNegotiationRounds < 1 || !Number.isInteger(config.maxNegotiationRounds)) {
+    throw new Error("SessionConfig: maxNegotiationRounds must be an integer >= 1");
   }
-  if (config.apiRetries < 0) {
-    throw new Error("SessionConfig: apiRetries must be >= 0");
+  if (!Number.isFinite(config.apiRetries) || config.apiRetries < 0 || !Number.isInteger(config.apiRetries)) {
+    throw new Error("SessionConfig: apiRetries must be an integer >= 0");
   }
 }

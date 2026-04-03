@@ -1,5 +1,6 @@
 import type {
   SessionState,
+  SessionObserver,
   LLMClient,
   AgentState,
   InsistenceLevel,
@@ -28,6 +29,7 @@ export async function evaluateInterruption(
   clients: Map<string, LLMClient>,
   speaker: SpeakerInfo,
   effectiveInsistence: InsistenceLevel,
+  observer?: SessionObserver,
 ): Promise<InterruptionInfo | null> {
   const tokenCount = createTokenCounter(session.config.tokenCounter);
 
@@ -62,7 +64,7 @@ export async function evaluateInterruption(
       }
 
       // 7. Update thoughts for all listeners
-      recordThought(session, session.currentTurn, listener.name, "judge", result.thought);
+      recordThought(session, session.currentTurn, listener.name, "judge", result.thought, observer);
       return { listener, result };
     }),
   );
@@ -125,7 +127,7 @@ export async function evaluateInterruption(
     }
   }
 
-  recordThought(session, session.currentTurn, speaker.name, "defense", defenseResult.thought);
+  recordThought(session, session.currentTurn, speaker.name, "defense", defenseResult.thought, observer);
 
   return {
     interrupter: representative.listener.name,

@@ -19,6 +19,12 @@ export function cleanUtterance(
   // 2. Strip speaker prefix — check all agent names and "你"
   const allNames = [...agentNames, "你"];
   for (const name of allNames) {
+    // [Name]： or [Name]:
+    const bracketColonPattern = new RegExp(`^\\[${escapeRegex(name)}\\][：:]\\s*`);
+    if (bracketColonPattern.test(cleaned)) {
+      cleaned = cleaned.replace(bracketColonPattern, "");
+      break;
+    }
     // **Name**： or **Name**:
     const boldColonPattern = new RegExp(`^\\*\\*${escapeRegex(name)}\\*\\*[：:]\\s*`);
     if (boldColonPattern.test(cleaned)) {
@@ -43,6 +49,11 @@ export function cleanUtterance(
       cleaned = cleaned.replace(halfSaidPattern, "");
       break;
     }
+  }
+
+  // 2b. Re-check history hallucination after prefix stripping
+  if (/^-?\s*\[[\d.]+s\]/.test(cleaned)) {
+    return { text: null, historyHallucination: true };
   }
 
   // 3. Strip parenthetical actions: （...） and (...)

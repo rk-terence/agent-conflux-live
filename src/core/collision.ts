@@ -1,5 +1,6 @@
 import type {
   SessionState,
+  SessionObserver,
   LLMClient,
   AgentState,
   InsistenceLevel,
@@ -29,6 +30,7 @@ export async function resolveCollision(
   session: SessionState,
   clients: Map<string, LLMClient>,
   speakers: Speaker[],
+  observer?: SessionObserver,
 ): Promise<CollisionInfo> {
   const colliders: ColliderEntry[] = speakers.map((s) => ({
     agent: s.name,
@@ -78,7 +80,7 @@ export async function resolveCollision(
           }
         }
 
-        recordThought(session, session.currentTurn, candidate.name, "negotiation", result.thought);
+        recordThought(session, session.currentTurn, candidate.name, "negotiation", result.thought, observer);
         return { candidate, result };
       }),
     );
@@ -148,7 +150,7 @@ export async function resolveCollision(
           }
         }
 
-        recordThought(session, session.currentTurn, voter.name, "voting", result.thought);
+        recordThought(session, session.currentTurn, voter.name, "voting", result.thought, observer);
         return { voter: voter.name, result };
       }),
     );

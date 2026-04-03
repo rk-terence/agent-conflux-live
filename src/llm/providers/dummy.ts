@@ -54,9 +54,13 @@ function generateResponse(agentName: string, request: ChatRequest, callCount: nu
   if (sys.includes("投票决定谁先发言")) {
     // Voting mode — pick first candidate from user prompt
     const candidateMatch = user.match(/想要发言的人：(.+?)。/);
-    const candidates = candidateMatch ? candidateMatch[1].split("、") : [];
+    let candidates: string[] = [];
+    if (candidateMatch) {
+      // Split on "、" and " 和 " to handle all formatNameList output styles
+      candidates = candidateMatch[1].split(/、| 和 /).map((s) => s.trim()).filter(Boolean);
+    }
     const vote = candidates.length > 0
-      ? candidates[callCount % candidates.length].replace(/ 和 /, "").trim()
+      ? candidates[callCount % candidates.length]
       : agentName;
     return JSON.stringify({
       vote,

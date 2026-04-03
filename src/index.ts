@@ -1,7 +1,7 @@
 // Public API
 export { buildConfig } from "./config.js";
 export type { SessionConfigInput } from "./config.js";
-export { createSession } from "./state/session.js";
+export { createSession, requestStop } from "./state/session.js";
 export { createClient } from "./llm/client.js";
 export { runDiscussion } from "./core/discussion-loop.js";
 

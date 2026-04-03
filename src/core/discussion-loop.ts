@@ -114,7 +114,7 @@ async function runOneTurn(
 
   // 4. Record thoughts for ALL polled agents
   for (const { agent, result } of reactionResults) {
-    recordThought(session, session.currentTurn, agent.name, "reaction", result.thought);
+    recordThought(session, session.currentTurn, agent.name, "reaction", result.thought, observer);
   }
 
   observer?.onReactionResults?.(reactions);
@@ -199,12 +199,12 @@ async function handleSpeech(
   const tokenCount = createTokenCounter(session.config.tokenCounter);
   let interruption = null;
   if (tokenCount(speaker.utterance) > session.config.interruptionThreshold) {
-    observer?.onInterruptionAttempt?.(speaker.name, "evaluating");
     interruption = await evaluateInterruption(
       session,
       clients,
       { agent: speaker.agent, name: speaker.name, utterance: speaker.utterance },
       effectiveInsistence,
+      observer,
     );
   }
 
@@ -222,10 +222,12 @@ async function handleSpeech(
   setLastSpeaker(session, speaker.name);
   setLastSpoke(speaker.agent, session.currentTurn);
 
-  if (interruption?.success) {
-    setFloorHolder(session, interruption.interrupter);
-    recordInterrupted(speaker.agent);
+  if (interruption) {
     observer?.onInterruptionAttempt?.(speaker.name, interruption.interrupter);
+    if (interruption.success) {
+      setFloorHolder(session, interruption.interrupter);
+      recordInterrupted(speaker.agent);
+    }
   }
 
   observer?.onTurnComplete?.(record);
@@ -242,8 +244,14 @@ async function handleCollision(
   // Snapshot timestamp before collision time advances
   const turnTimestamp = session.virtualTime;
 
-  const collisionInfo = await resolveCollision(session, clients, speakers);
+  // Snapshot original reaction insistence before negotiation mutates speakers
+  const originalInsistence = new Map(speakers.map((s) => [s.name, s.insistence]));
+
+  const collisionInfo = await resolveCollision(session, clients, speakers, observer);
   const winner = speakers.find((s) => s.name === collisionInfo.winner)!;
+
+  // Restore original reaction insistence so SpeechRecord captures the pre-negotiation value
+  winner.insistence = originalInsistence.get(winner.name)!;
 
   observer?.onCollisionResolved?.(collisionInfo);
 
@@ -264,6 +272,9 @@ async function handleCollision(
 }
 
 function shouldEnd(session: SessionState): string | null {
+  if (session.stopRequested) {
+    return "manual_stop";
+  }
   if (session.silenceAccumulated > session.config.silenceTimeout) {
     return "silence_timeout";
   }

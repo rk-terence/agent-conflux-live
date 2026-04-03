@@ -14,7 +14,7 @@ Using OpenAI-compatible protocol (`https://zenmux.ai/api/v1/chat/completions`).
 ### Key Gotchas
 
 - **API key encoding**: API keys pasted from Chinese IME may contain invisible Unicode chars. The provider adapter should strip non-printable ASCII on construction.
-- **Reasoning tokens eat max_tokens budget**: Thinking models (Gemini 2.5 Flash/Pro) spend most of `max_completion_tokens` on reasoning tokens, leaving almost nothing for actual output. Solution: thinking models should be configured with ~10x the normal max_tokens to compensate.
+- **Reasoning tokens eat max_tokens budget**: Thinking models (Gemini 2.5 Flash/Pro) spend most of `max_completion_tokens` on reasoning tokens, leaving almost nothing for actual output. Solution: set `thinkingModel: true` in `AgentConfig` — the provider adapter automatically multiplies `max_tokens` by 10 across all prompt modes.
 - **`reasoning: { enabled: false }` not universally supported**: Gemini 2.5 Pro rejects this parameter (HTTP 400). We no longer send it — instead we increase the token budget.
 - **Model slug format**: `provider/model-name`, e.g. `deepseek/deepseek-chat`, `google/gemini-2.5-flash`.
 - **Error responses can be HTML**: HTTP 500 from some models returns a full HTML error page. The provider adapter should truncate error bodies > 200 chars and try to extract JSON error messages.

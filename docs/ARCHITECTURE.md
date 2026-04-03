@@ -82,6 +82,7 @@ interface AgentConfig {
   model: string;          // provider-specific model ID
   endpoint?: string;      // custom API endpoint (for OpenAI-compatible providers)
   apiKey?: string;        // falls back to environment variable if absent
+  thinkingModel?: boolean; // if true, max_tokens multiplied by 10 for reasoning overhead
 }
 
 interface SessionConfig {
@@ -220,6 +221,7 @@ interface SessionState {
   endReason: string | null;          // null while running
   collisionStreak: number;          // consecutive turns with collision (for collision notice)
   collisionStreakColliders: string[];// agents who collided in all rounds of current streak
+  stopRequested: boolean;           // set by requestStop(); checked by shouldEnd()
 }
 ```
 
@@ -287,13 +289,14 @@ interface DefenseResult {
 
 `createSession(config: SessionConfig): SessionState`
 
-1. Validate config:
-   - ≥ 2 agents, unique names, required fields present
+1. Validate config (via `validateConfig`, also exported for standalone use). `validateConfig` is pure — it does not mutate the config. String fields are validated using `.trim()` but the original values are unchanged. Normalization (trimming) only happens in `buildConfig`, which operates on its own copy.
+   - ≥ 2 agents, unique names (after trim), required string fields non-empty (after trim)
+   - Integer fields (`recentTierSize`, `mediumTierEnd`, `maxNegotiationRounds`, `apiRetries`) must be finite integers
    - `recentTierSize >= 1`
    - `mediumTierEnd >= recentTierSize`
-   - `silenceTimeout > 0`, `silenceBackoffCap > 0`
-   - `tokenTimeCost > 0`, `collisionTimeCost > 0`
-   - `interruptionThreshold > 0`
+   - `silenceTimeout > 0`, `silenceBackoffCap > 0` (finite)
+   - `tokenTimeCost > 0`, `collisionTimeCost > 0` (finite)
+   - `interruptionThreshold > 0` (finite)
    - `maxNegotiationRounds >= 1`, `apiRetries >= 0`
 2. Create `AgentState` for each agent (all counters at zero, thought null)
 3. Append `DiscussionStartedRecord` as turn 0
@@ -306,7 +309,8 @@ All state mutations go through helper functions in `session.ts` and `agent-state
 - `appendTurnRecord(session, record)` — push to log, advance virtualTime by `computeTurnTimeCost(record)` (turn counter is owned by the loop, not this function)
 - `advanceVirtualTime(session, seconds)` — add to virtualTime
 - `resetSilenceStreak(session)` — reset silenceBackoffStep and silenceAccumulated to 0
-- `recordThought(session, turn, agent, mode, thought)` — append to `thoughtLog` AND call `updateThought(agent, thought)`
+- `recordThought(session, turn, agent, mode, thought, observer?)` — append to `thoughtLog`, call `updateThought(agent, thought)`, and call `observer?.onThoughtUpdate(agent, thought)` if thought is non-null
+- `requestStop(session)` — set `session.stopRequested = true`; the loop ends cleanly after the current turn
 - `updateThought(agent, thought)` — if string, replace; if null, keep
 - `recordCollisionLoss(agent)` — increment consecutiveCollisionLosses
 - `resetCollisionLosses(agent)` — set to 0
@@ -454,8 +458,14 @@ function handleCollision(session, clients, speakers):
   // should record the moment the collision began, not the post-collision time
   turnTimestamp = session.virtualTime
 
+  // Snapshot original reaction insistence before negotiation mutates speakers
+  originalInsistence = Map(speakers → [name, insistence])
+
   collisionInfo = await resolveCollision(session, clients, speakers)
   winner = speakers.find(s => s.name === collisionInfo.winner)
+
+  // Restore original reaction insistence so SpeechRecord captures the pre-negotiation value
+  winner.insistence = originalInsistence.get(winner.name)
 
   // Update losers
   for each loser in speakers where name !== winner.name:
@@ -476,9 +486,9 @@ function handleCollision(session, clients, speakers):
 
 Checked at the **start** of each iteration:
 
-1. `session.silenceAccumulated > config.silenceTimeout` → `"silence_timeout"`
-2. `config.maxDuration !== null AND session.virtualTime > config.maxDuration` → `"duration_limit"`
-3. External stop signal (implementation-specific) → `"manual_stop"`
+1. `session.stopRequested === true` → `"manual_stop"`
+2. `session.silenceAccumulated > config.silenceTimeout` → `"silence_timeout"`
+3. `config.maxDuration !== null AND session.virtualTime > config.maxDuration` → `"duration_limit"`
 
 Fatal errors during the loop set `endReason` to `"fatal_error"`.
 
@@ -626,7 +636,7 @@ Every API call produces a `PromptSet { systemPrompt, userPrompt, maxTokens }`.
 
 - `systemPrompt` → system message
 - `userPrompt` → user message = projectedHistory + `"\n\n"` + turnDirective (history omitted if empty)
-- `maxTokens` → per mode (reaction: 150, negotiation: 50, voting: 50, judge: 50, defense: 50)
+- `maxTokens` → per mode (reaction: 150, negotiation: 50, voting: 50, judge: 50, defense: 50). If `agent.config.thinkingModel` is true, the provider adapter multiplies the value by 10 to compensate for reasoning token overhead.
 
 ### Prompt Builder (`prompt-builder.ts`)
 
@@ -757,7 +767,7 @@ Scan the **delivered text visible to this agent** in the event log after the age
 - `InterruptionInfo.spokenPart` for successful interruptions (the unspoken part is private to the speaker and must NOT be scanned for other agents)
 - `ColliderEntry.utterance` only if the viewer is that collider (losers' intended text is private)
 
-Uses regex: `@{exactName}` where `exactName` is the agent's configured name. Natural language mentions without `@` are not detected.
+Uses regex: `@{exactName}(?=\W|$)` where `exactName` is the agent's configured name. The word boundary ensures `@AgentName` does not match `@AgentName2`. Natural language mentions without `@` are not detected.
 
 **Starvation hint**: triggered when `agent.consecutiveCollisionLosses >= 2`.
 
@@ -795,11 +805,13 @@ Pipeline (applied in order; if any step produces null, return null):
 
 1. **History hallucination check**: if text matches `/^-?\s*\[[\d.]+s\]/` → return null
 2. **Strip speaker prefix**: remove leading patterns:
+   - `[{name}]：` / `[{name}]:`
    - `{name}:` / `{name}：`
    - `**{name}**：` / `**{name}**:`
    - `{name} 说：` / `**{name}** 说：`
    - `**{name}** 说了一半：`
    - (Check against all agent names and `你`)
+2b. **Re-check history hallucination** after prefix stripping (catches `**DeepSeek**：[2.5s] 说：...`)
 3. **Strip parenthetical actions**: remove `（...）` and `(...)` patterns
 4. **Trim** whitespace
 5. **Minimum length**: if result length < 4 characters → return null

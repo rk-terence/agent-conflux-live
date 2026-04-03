@@ -10,6 +10,11 @@ import type {
 } from "../types.js";
 import { formatNameList } from "../util/name-list.js";
 
+/** Blockquote text, handling embedded newlines so all lines stay inside the `>` block. */
+function bq(text: string, indent = "  "): string {
+  return text.split("\n").map((line) => `${indent}> ${line}`).join("\n");
+}
+
 /**
  * Render the event log as a perspective-specific markdown transcript.
  */
@@ -83,7 +88,7 @@ function renderSpeech(record: SpeechRecord, viewer: string, tier: Tier): string 
 function renderPlainSpeech(record: SpeechRecord, viewer: string, _tier: Tier): string {
   const ts = formatTime(record.virtualTime);
   const speaker = speakerLabel(record.speaker, viewer);
-  return `- [${ts}] ${speaker}：\n  > ${record.utterance}`;
+  return `- [${ts}] ${speaker}：\n${bq(record.utterance)}`;
 }
 
 // ── Collision (no interruption) ──
@@ -96,7 +101,7 @@ function renderCollisionNoInterruption(record: SpeechRecord, viewer: string, tie
 
   if (tier === "old") {
     const winnerName = nameInNarrative(winner, viewer);
-    return `- [${ts}] 多人同时开口，${winnerName} 先说了\n  ${speakerLabel(winner, viewer)}：\n  > ${record.utterance}`;
+    return `- [${ts}] 多人同时开口，${winnerName} 先说了\n  ${speakerLabel(winner, viewer)}：\n${bq(record.utterance)}`;
   }
 
   // Build collision header line
@@ -110,20 +115,20 @@ function renderCollisionNoInterruption(record: SpeechRecord, viewer: string, tie
   if (viewer === winner) {
     // Winner perspective
     lines.push(`  ${speakerLabel(winner, viewer)}：`);
-    lines.push(`  > ${record.utterance}`);
+    lines.push(bq(record.utterance));
   } else if (others.some((o) => o === viewer)) {
     // Yielder perspective
     const viewerCollider = collision.colliders.find((c) => c.agent === viewer);
     if (viewerCollider && tier === "recent") {
       lines.push(`  你想说但没说出来的：`);
-      lines.push(`  > ${viewerCollider.utterance}`);
+      lines.push(bq(viewerCollider.utterance));
     }
     lines.push(`  ${speakerLabel(winner, viewer)}：`);
-    lines.push(`  > ${record.utterance}`);
+    lines.push(bq(record.utterance));
   } else {
     // Bystander perspective
     lines.push(`  ${speakerLabel(winner, viewer)}：`);
-    lines.push(`  > ${record.utterance}`);
+    lines.push(bq(record.utterance));
   }
 
   return lines.join("\n");
@@ -156,7 +161,7 @@ function renderSuccessfulInterruption(
   if (tier === "old") {
     const spkName = nameInNarrative(speaker, viewer);
     const intName = nameInNarrative(interrupter, viewer);
-    return `- [${ts}] ${spkName} 被 ${intName} 打断了\n  ${speakerLabel(speaker, viewer)} 说了一半：\n  > ${interruption.spokenPart}`;
+    return `- [${ts}] ${spkName} 被 ${intName} 打断了\n  ${speakerLabel(speaker, viewer)} 说了一半：\n${bq(interruption.spokenPart)}`;
   }
 
   if (viewer === speaker) {
@@ -165,11 +170,11 @@ function renderSuccessfulInterruption(
     const lines = [
       `- [${ts}] 你说话时被 ${intName} 打断了`,
       `  你说出来的部分：`,
-      `  > ${interruption.spokenPart}`,
+      bq(interruption.spokenPart),
     ];
     if (tier === "recent") {
       lines.push(`  你还想说的：`);
-      lines.push(`  > ${interruption.unspokenPart}`);
+      lines.push(bq(interruption.unspokenPart));
     }
     return lines.join("\n");
   }
@@ -180,7 +185,7 @@ function renderSuccessfulInterruption(
     return [
       `- [${ts}] ${spkName} 说话时你打断了它`,
       `  ${speakerLabel(speaker, viewer)} 说了一半：`,
-      `  > ${interruption.spokenPart}`,
+      bq(interruption.spokenPart),
     ].join("\n");
   }
 
@@ -190,7 +195,7 @@ function renderSuccessfulInterruption(
   return [
     `- [${ts}] ${spkName} 说话时被 ${intName} 打断了`,
     `  ${speakerLabel(speaker, viewer)} 说了一半：`,
-    `  > ${interruption.spokenPart}`,
+    bq(interruption.spokenPart),
   ].join("\n");
 }
 
@@ -206,7 +211,7 @@ function renderFailedInterruption(
   if (tier === "old") {
     const intName = nameInNarrative(interrupter, viewer);
     const spkName = nameInNarrative(speaker, viewer);
-    return `- [${ts}] ${intName} 试图打断 ${spkName} 未果\n  ${speakerLabel(speaker, viewer)}：\n  > ${record.utterance}`;
+    return `- [${ts}] ${intName} 试图打断 ${spkName} 未果\n  ${speakerLabel(speaker, viewer)}：\n${bq(record.utterance)}`;
   }
 
   if (viewer === speaker) {
@@ -214,7 +219,7 @@ function renderFailedInterruption(
     return [
       `- [${ts}] ${intName} 试图打断你，但你坚持说完了`,
       `  ${speakerLabel(speaker, viewer)}：`,
-      `  > ${record.utterance}`,
+      bq(record.utterance),
     ].join("\n");
   }
 
@@ -223,7 +228,7 @@ function renderFailedInterruption(
     return [
       `- [${ts}] 你试图打断 ${spkName}，但它坚持说完了`,
       `  ${speakerLabel(speaker, viewer)}：`,
-      `  > ${record.utterance}`,
+      bq(record.utterance),
     ].join("\n");
   }
 
@@ -233,7 +238,7 @@ function renderFailedInterruption(
   return [
     `- [${ts}] ${intName} 试图打断 ${spkName}，但 ${spkName} 坚持说完了`,
     `  ${speakerLabel(speaker, viewer)}：`,
-    `  > ${record.utterance}`,
+    bq(record.utterance),
   ].join("\n");
 }
 
@@ -250,10 +255,10 @@ function renderCollisionWithInterruption(record: SpeechRecord, viewer: string, t
     const winnerName = nameInNarrative(winner, viewer);
     if (interruption.success) {
       const intName = nameInNarrative(interrupter, viewer);
-      return `- [${ts}] 多人同时开口，${winnerName} 先说了，随后被 ${intName} 打断\n  ${speakerLabel(winner, viewer)} 说了一半：\n  > ${interruption.spokenPart}`;
+      return `- [${ts}] 多人同时开口，${winnerName} 先说了，随后被 ${intName} 打断\n  ${speakerLabel(winner, viewer)} 说了一半：\n${bq(interruption.spokenPart)}`;
     } else {
       const intName = nameInNarrative(interrupter, viewer);
-      return `- [${ts}] 多人同时开口，${winnerName} 先说了，${intName} 试图打断未果\n  ${speakerLabel(winner, viewer)}：\n  > ${record.utterance}`;
+      return `- [${ts}] 多人同时开口，${winnerName} 先说了，${intName} 试图打断未果\n  ${speakerLabel(winner, viewer)}：\n${bq(record.utterance)}`;
     }
   }
 
@@ -269,7 +274,7 @@ function renderCollisionWithInterruption(record: SpeechRecord, viewer: string, t
     const viewerCollider = collision.colliders.find((c) => c.agent === viewer);
     if (viewerCollider) {
       lines.push(`  你想说但没说出来的：`);
-      lines.push(`  > ${viewerCollider.utterance}`);
+      lines.push(bq(viewerCollider.utterance));
     }
   }
 
@@ -278,15 +283,15 @@ function renderCollisionWithInterruption(record: SpeechRecord, viewer: string, t
     if (viewer === winner) {
       const intName = nameInNarrative(interrupter, viewer);
       lines.push(`  你说出来的部分：`);
-      lines.push(`  > ${interruption.spokenPart}`);
+      lines.push(bq(interruption.spokenPart));
       if (tier === "recent") {
         lines.push(`  你还想说的：`);
-        lines.push(`  > ${interruption.unspokenPart}`);
+        lines.push(bq(interruption.unspokenPart));
       }
       lines.push(`  （被 ${intName} 打断了）`);
     } else {
       lines.push(`  ${speakerLabel(winner, viewer)} 说了一半：`);
-      lines.push(`  > ${interruption.spokenPart}`);
+      lines.push(bq(interruption.spokenPart));
       const intName = nameInNarrative(interrupter, viewer);
       if (viewer === interrupter) {
         lines.push(`  （你打断了${nameInNarrative(winner, viewer)}）`);
@@ -297,7 +302,7 @@ function renderCollisionWithInterruption(record: SpeechRecord, viewer: string, t
   } else {
     // Failed interruption
     lines.push(`  ${speakerLabel(winner, viewer)}：`);
-    lines.push(`  > ${record.utterance}`);
+    lines.push(bq(record.utterance));
     const intName = nameInNarrative(interrupter, viewer);
     if (viewer === interrupter) {
       lines.push(`  （你试图打断但未果）`);

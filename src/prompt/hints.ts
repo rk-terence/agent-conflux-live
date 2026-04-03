@@ -9,7 +9,7 @@ export function getMentionHint(
   session: SessionState,
   mode: "reaction" | "negotiation",
 ): string | null {
-  const pattern = new RegExp(`@${escapeRegex(agent.name)}`);
+  const pattern = new RegExp(`@${escapeRegex(agent.name)}(?=\\W|$)`);
   const lastSpoke = agent.lastSpokeTurn ?? -1;
 
   for (const record of session.log) {

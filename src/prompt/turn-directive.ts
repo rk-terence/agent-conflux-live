@@ -159,7 +159,7 @@ export function buildJudgeDirective(
   }
 
   lines.push(`${ctx.speakerName} 正在说话，你目前听到的是：`);
-  lines.push(`> ${ctx.spokenPart}`);
+  lines.push(ctx.spokenPart.split("\n").map((l) => `> ${l}`).join("\n"));
   lines.push("");
   lines.push("你想打断吗？用 JSON 格式回复。");
 
@@ -192,10 +192,10 @@ export function buildDefenseDirective(
   }
 
   lines.push("你正在说话。你已经说了：");
-  lines.push(`> ${ctx.spokenPart}`);
+  lines.push(ctx.spokenPart.split("\n").map((l) => `> ${l}`).join("\n"));
   lines.push("");
   lines.push("你还想继续说：");
-  lines.push(`> ${ctx.unspokenPart}`);
+  lines.push(ctx.unspokenPart.split("\n").map((l) => `> ${l}`).join("\n"));
   lines.push("");
 
   // Conditional reason line

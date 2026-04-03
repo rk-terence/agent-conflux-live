@@ -1,6 +1,7 @@
 import type {
   SessionConfig,
   SessionState,
+  SessionObserver,
   TurnRecord,
   SpeechRecord,
   SilenceRecord,
@@ -9,8 +10,10 @@ import type {
 } from "../types.js";
 import { createAgentState, updateThought } from "./agent-state.js";
 import { computeTurnTimeCost } from "./virtual-clock.js";
+import { validateConfig } from "../config.js";
 
 export function createSession(config: SessionConfig): SessionState {
+  validateConfig(config);
   const agents = config.agents.map((ac) => createAgentState(ac));
 
   const session: SessionState = {
@@ -27,6 +30,7 @@ export function createSession(config: SessionConfig): SessionState {
     endReason: null,
     collisionStreak: 0,
     collisionStreakColliders: [],
+    stopRequested: false,
   };
 
   // Append discussion_started as turn 0
@@ -63,11 +67,15 @@ export function recordThought(
   agentName: string,
   mode: PromptMode,
   thought: string | null,
+  observer?: SessionObserver,
 ): void {
   session.thoughtLog.push({ turn, agent: agentName, mode, thought });
   const agent = session.agents.find((a) => a.name === agentName);
   if (agent) {
     updateThought(agent, thought);
+    if (thought !== null) {
+      observer?.onThoughtUpdate?.(agentName, thought);
+    }
   }
 }
 
@@ -98,4 +106,8 @@ export function setLastSpeaker(session: SessionState, name: string): void {
 
 export function clearLastSpeaker(session: SessionState): void {
   session.lastSpeaker = null;
+}
+
+export function requestStop(session: SessionState): void {
+  session.stopRequested = true;
 }
