@@ -48,9 +48,14 @@ export function classifyL0(
     reasons.push("orphan_api_call_finished");
   }
 
-  // 8. Duplicate call_id
-  if (acc.duplicateCallIds.length > 0) {
+  // 8. Duplicate api_call_started (call_id, attempt) — retry-safe keying
+  if (acc.duplicateCallKeys.length > 0) {
     reasons.push("duplicate_call_id");
+  }
+
+  // 8b. Duplicate api_call_finished (call_id, attempt)
+  if (acc.duplicateFinishedKeys.length > 0) {
+    reasons.push("duplicate_api_call_finished");
   }
 
   // 9. Auth/permission errors
@@ -66,6 +71,16 @@ export function classifyL0(
   // 11. Corrupt events
   if (acc.corruptEvents.length > 0) {
     reasons.push("malformed_core_event");
+  }
+
+  // 12. Orphan normalize_result (call_id not in any api_call_finished)
+  if (acc.orphanNormalizeResults.length > 0) {
+    reasons.push("orphan_normalize_result");
+  }
+
+  // 13. Orphan utterance_filter_result (call_id not in any api_call_finished)
+  if (acc.orphanFilterResults.length > 0) {
+    reasons.push("orphan_utterance_filter_result");
   }
 
   summary.classification.l0_infra = {

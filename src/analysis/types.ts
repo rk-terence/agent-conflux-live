@@ -170,11 +170,29 @@ export interface AccumulatorState {
   hasFatalError: boolean;
   fatalErrors: string[];
 
-  // API call lifecycle tracking
-  apiCallsStartedIds: Set<string>;
-  apiCallsFinishedIds: Set<string>;
-  duplicateCallIds: string[];
+  // API call lifecycle tracking — keyed by "call_id:attempt" for retry safety
+  apiCallsStartedKeys: Set<string>;
+  apiCallsFinishedKeys: Set<string>;
+  /** Set of call_ids that have at least one api_call_finished (any attempt) */
+  apiCallsFinishedCallIds: Set<string>;
+  /** Set of call_ids that have at least one successful api_call_finished */
+  apiCallsSucceededCallIds: Set<string>;
+  duplicateCallKeys: string[];
+  duplicateFinishedKeys: string[];
   orphanFinished: string[];
+
+  // Downstream lifecycle validation
+  orphanNormalizeResults: string[];
+  orphanFilterResults: string[];
+
+  // Cross-field context consistency (warnings, not L0 blockers)
+  /** Expected context per call_id: turn, agent, mode from first api_call_started */
+  callIdContext: Map<string, { turn: number; agent: string; mode: string }>;
+  retryContextMismatchCount: number;
+  normalizeContextMismatchCount: number;
+  filterContextMismatchCount: number;
+  /** normalize_result linking to a call_id with no successful finish */
+  normalizeOnFailedCallCount: number;
 
   // Provider error signals (for L0)
   authErrors: Array<{ call_id: string; detail: string }>;

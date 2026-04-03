@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { readLogText } from "../read-log.js";
 import { summarizeRun } from "../summarize-run.js";
-import { buildCleanRun, buildInfraFailRun, resetCallSeq } from "./fixtures.js";
+import { buildCleanRun, buildRetryRun, buildInfraFailRun, resetCallSeq } from "./fixtures.js";
 
 function summarize(lines: string[]) {
   const text = lines.join("\n");
@@ -163,5 +163,41 @@ describe("summarizeRun", () => {
     expect(s.source.run_id).toBeTruthy();
     expect(s.source.log_schema_version).toBe(1);
     expect(s.schema_version).toBe(1);
+  });
+
+  it("produces no warnings on clean run", () => {
+    const s = summarize(buildCleanRun());
+    expect(s.warnings).toEqual([]);
+  });
+
+  it("produces no warnings on valid retry run", () => {
+    const s = summarize(buildRetryRun());
+    expect(s.warnings).toEqual([]);
+  });
+
+  it("emits retry_context_mismatch warning when retry changes agent", () => {
+    resetCallSeq();
+    // Manually build a log where same call_id has different agents across attempts
+    const RUN_ID = "00000000-0000-0000-0000-000000000001";
+    const base = { schema_version: 1, run_id: RUN_ID };
+    const lines = [
+      JSON.stringify({ ts: "2026-01-01T00:00:00.000Z", event: "run_started", ...base, config_path: "/test" }),
+      JSON.stringify({ ts: "2026-01-01T00:00:00.010Z", event: "api_call_started", ...base,
+        call_id: "ctx-test", turn: 1, agent: "Alice", mode: "reaction", attempt: 0,
+        provider: "test", model: "m", max_tokens: 100, system_prompt_chars: 100,
+        user_prompt_chars: 100, history_chars: 50, directive_chars: 50 }),
+      JSON.stringify({ ts: "2026-01-01T00:00:00.020Z", event: "api_call_started", ...base,
+        call_id: "ctx-test", turn: 1, agent: "Bob", mode: "reaction", attempt: 1,
+        provider: "test", model: "m", max_tokens: 100, system_prompt_chars: 100,
+        user_prompt_chars: 100, history_chars: 50, directive_chars: 50 }),
+      JSON.stringify({ ts: "2026-01-01T00:00:00.030Z", event: "api_call_finished", ...base,
+        call_id: "ctx-test", turn: 1, agent: "Bob", mode: "reaction", attempt: 1,
+        status: "success", duration_ms: 500, finish_reason: "stop" }),
+      JSON.stringify({ ts: "2026-01-01T00:00:00.100Z", event: "run_finished", ...base,
+        status: "completed", end_reason: "silence_timeout", terminal: true }),
+    ];
+    const s = summarize(lines);
+    expect(s.warnings.length).toBe(1);
+    expect(s.warnings[0]).toContain("retry_context_mismatch");
   });
 });

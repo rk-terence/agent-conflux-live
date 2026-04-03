@@ -168,10 +168,20 @@ export function summarizeRun(
     runFinishedStatus: null,
     hasFatalError: false,
     fatalErrors: [],
-    apiCallsStartedIds: new Set(),
-    apiCallsFinishedIds: new Set(),
-    duplicateCallIds: [],
+    apiCallsStartedKeys: new Set(),
+    apiCallsFinishedKeys: new Set(),
+    apiCallsFinishedCallIds: new Set(),
+    apiCallsSucceededCallIds: new Set(),
+    duplicateCallKeys: [],
+    duplicateFinishedKeys: [],
     orphanFinished: [],
+    orphanNormalizeResults: [],
+    orphanFilterResults: [],
+    callIdContext: new Map(),
+    retryContextMismatchCount: 0,
+    normalizeContextMismatchCount: 0,
+    filterContextMismatchCount: 0,
+    normalizeOnFailedCallCount: 0,
     authErrors: [],
     modelErrors: [],
     corruptEvents: [],
@@ -248,13 +258,29 @@ export function summarizeRun(
 
       case "api_call_started": {
         summary.counts.api_calls_started++;
-        const callId = ev.call_id;
+        const lifecycleKey = `${ev.call_id}:${ev.attempt}`;
 
-        // Duplicate detection
-        if (acc.apiCallsStartedIds.has(callId)) {
-          acc.duplicateCallIds.push(callId);
+        // Duplicate detection — keyed by (call_id, attempt) for retry safety
+        if (acc.apiCallsStartedKeys.has(lifecycleKey)) {
+          acc.duplicateCallKeys.push(lifecycleKey);
         }
-        acc.apiCallsStartedIds.add(callId);
+        acc.apiCallsStartedKeys.add(lifecycleKey);
+
+        // Store/verify call_id context for cross-field consistency
+        const existing = acc.callIdContext.get(ev.call_id);
+        if (!existing) {
+          acc.callIdContext.set(ev.call_id, {
+            turn: ev.turn,
+            agent: ev.agent,
+            mode: ev.mode,
+          });
+        } else if (
+          existing.turn !== ev.turn ||
+          existing.agent !== ev.agent ||
+          existing.mode !== ev.mode
+        ) {
+          acc.retryContextMismatchCount++;
+        }
 
         // Per-mode
         const modeStats = ensureMode(summary.api.by_mode, ev.mode);
@@ -268,13 +294,19 @@ export function summarizeRun(
 
       case "api_call_finished": {
         summary.counts.api_calls_finished++;
-        const callId = ev.call_id;
+        const lifecycleKey = `${ev.call_id}:${ev.attempt}`;
 
-        // Orphan detection
-        if (!acc.apiCallsStartedIds.has(callId)) {
-          acc.orphanFinished.push(callId);
+        // Orphan detection — keyed by (call_id, attempt) for retry safety
+        if (!acc.apiCallsStartedKeys.has(lifecycleKey)) {
+          acc.orphanFinished.push(lifecycleKey);
         }
-        acc.apiCallsFinishedIds.add(callId);
+
+        // Duplicate finished detection
+        if (acc.apiCallsFinishedKeys.has(lifecycleKey)) {
+          acc.duplicateFinishedKeys.push(lifecycleKey);
+        }
+        acc.apiCallsFinishedKeys.add(lifecycleKey);
+        acc.apiCallsFinishedCallIds.add(ev.call_id);
 
         const duration = typeof ev.duration_ms === "number" ? ev.duration_ms : 0;
 
@@ -286,6 +318,7 @@ export function summarizeRun(
 
         if (ev.status === "success") {
           summary.counts.api_calls_succeeded++;
+          acc.apiCallsSucceededCallIds.add(ev.call_id);
           modeStats.succeeded++;
           agentStats.succeeded++;
 
@@ -302,7 +335,7 @@ export function summarizeRun(
           // Record error details
           if (summary.api.errors.length < MAX_ERRORS) {
             const entry: ApiErrorEntry = {
-              call_id: callId,
+              call_id: ev.call_id,
               agent: ev.agent,
               mode: ev.mode,
             };
@@ -315,7 +348,7 @@ export function summarizeRun(
           // Detect auth errors (L0 signal)
           if (isAuthError(ev.error_code, ev.http_status, ev.error_message)) {
             acc.authErrors.push({
-              call_id: callId,
+              call_id: ev.call_id,
               detail: ev.error_message ?? ev.error_code ?? `http_${ev.http_status}`,
             });
           }
@@ -323,7 +356,7 @@ export function summarizeRun(
           // Detect model errors (L0 signal)
           if (isModelError(ev.error_code, ev.http_status, ev.error_message)) {
             acc.modelErrors.push({
-              call_id: callId,
+              call_id: ev.call_id,
               detail: ev.error_message ?? ev.error_code ?? `http_${ev.http_status}`,
             });
           }
@@ -342,6 +375,22 @@ export function summarizeRun(
 
       case "normalize_result": {
         summary.counts.normalize_results++;
+
+        // Lifecycle validation: call_id must link to a completed API call
+        if (!acc.apiCallsFinishedCallIds.has(ev.call_id)) {
+          acc.orphanNormalizeResults.push(ev.call_id);
+        } else {
+          // Cross-field consistency: turn/agent/mode should match the originating call
+          const ctx = acc.callIdContext.get(ev.call_id);
+          if (ctx && (ctx.turn !== ev.turn || ctx.agent !== ev.agent || ctx.mode !== ev.mode)) {
+            acc.normalizeContextMismatchCount++;
+          }
+          // normalize_result should only link to a call that succeeded
+          if (!acc.apiCallsSucceededCallIds.has(ev.call_id)) {
+            acc.normalizeOnFailedCallCount++;
+          }
+        }
+
         inc(summary.normalization.fallback_path_counts, ev.fallback_path);
         inc(summary.normalization.raw_kind_counts, ev.raw_kind);
         inc(summary.normalization.thought_type_counts, ev.thought_type);
@@ -358,6 +407,18 @@ export function summarizeRun(
 
       case "utterance_filter_result": {
         summary.counts.utterance_filter_results++;
+
+        // Lifecycle validation: call_id must link to a completed API call
+        if (!acc.apiCallsFinishedCallIds.has(ev.call_id)) {
+          acc.orphanFilterResults.push(ev.call_id);
+        } else {
+          // Cross-field consistency: turn/agent/mode should match, and mode must be reaction
+          const ctx = acc.callIdContext.get(ev.call_id);
+          if (ctx && (ctx.turn !== ev.turn || ctx.agent !== ev.agent || ctx.mode !== ev.mode)) {
+            acc.filterContextMismatchCount++;
+          }
+        }
+
         if (ev.dedup_dropped) summary.filtering.dedup_drop_count++;
         if (ev.history_hallucination) summary.filtering.history_hallucination_count++;
         if (ev.speaker_prefix_stripped) summary.filtering.speaker_prefix_stripped_count++;
@@ -499,6 +560,29 @@ export function summarizeRun(
       );
       agentStats.max_duration_ms = Math.max(...durations);
     }
+  }
+
+  // ── Context consistency warnings ───────────────────────────────────────────
+
+  if (acc.retryContextMismatchCount > 0) {
+    summary.warnings.push(
+      `retry_context_mismatch_count: ${acc.retryContextMismatchCount} retries where turn/agent/mode differs from initial attempt`,
+    );
+  }
+  if (acc.normalizeContextMismatchCount > 0) {
+    summary.warnings.push(
+      `normalize_context_mismatch_count: ${acc.normalizeContextMismatchCount} normalize_result events where turn/agent/mode differs from originating call`,
+    );
+  }
+  if (acc.filterContextMismatchCount > 0) {
+    summary.warnings.push(
+      `filter_context_mismatch_count: ${acc.filterContextMismatchCount} utterance_filter_result events where turn/agent/mode differs from originating call`,
+    );
+  }
+  if (acc.normalizeOnFailedCallCount > 0) {
+    summary.warnings.push(
+      `normalize_on_failed_call_count: ${acc.normalizeOnFailedCallCount} normalize_result events linked to a call_id with no successful finish`,
+    );
   }
 
   // ── Classification ────────────────────────────────────────────────────────

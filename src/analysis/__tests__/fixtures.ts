@@ -70,7 +70,7 @@ function apiCallCycle(opts: {
   errorCode?: string;
   errorMessage?: string;
   httpStatus?: number;
-}): string[] {
+}): { lines: string[]; callId: string } {
   const id = callId();
   const dur = opts.durationMs ?? 1000;
   const lines: string[] = [];
@@ -135,10 +135,11 @@ function apiCallCycle(opts: {
     );
   }
 
-  return lines;
+  return { lines, callId: id };
 }
 
 function utteranceFilter(opts: {
+  callId: string;
   turn: number;
   agent: string;
   offsetMs: number;
@@ -151,7 +152,7 @@ function utteranceFilter(opts: {
   cleanedToNull?: boolean;
 }): string {
   return line("utterance_filter_result", opts.offsetMs, {
-    call_id: callId(),
+    call_id: opts.callId,
     turn: opts.turn,
     agent: opts.agent,
     mode: "reaction",
@@ -321,9 +322,10 @@ export function buildCleanRun(opts: CleanRunOptions = {}): string[] {
 
     // Each agent gets a reaction API call
     for (const agent of agents) {
-      lines.push(...apiCallCycle({ turn: t, agent, mode: "reaction", offsetMs: ms }));
+      const cycle = apiCallCycle({ turn: t, agent, mode: "reaction", offsetMs: ms });
+      lines.push(...cycle.lines);
       ms += 1100;
-      lines.push(utteranceFilter({ turn: t, agent, offsetMs: ms }));
+      lines.push(utteranceFilter({ callId: cycle.callId, turn: t, agent, offsetMs: ms }));
       ms += 10;
     }
 
@@ -376,6 +378,83 @@ export function buildCleanRun(opts: CleanRunOptions = {}): string[] {
   return lines;
 }
 
+// ── Retry Run ───────────────────────────────────────────────────────────────
+
+/**
+ * Build a valid run where one API call retries (same call_id, different attempt).
+ * This must NOT trigger duplicate_call_id L0 fail.
+ */
+export function buildRetryRun(): string[] {
+  resetCallSeq();
+  let ms = 0;
+  const result: string[] = [];
+
+  result.push(runStarted(ms));
+  ms += 10;
+  result.push(sessionConfig(ms));
+  ms += 10;
+  result.push(turnStart(1, ms));
+  ms += 10;
+
+  // Simulate: call_id "retry-call-001", attempt 0 fails, attempt 1 succeeds
+  const retryCallId = "retry-call-001";
+  const base = {
+    call_id: retryCallId,
+    turn: 1,
+    agent: "Alice",
+    mode: "reaction",
+    provider: "test",
+    model: "test-model",
+  };
+
+  // Attempt 0: started + finished (error)
+  result.push(line("api_call_started", ms, {
+    ...base, attempt: 0,
+    max_tokens: 150, system_prompt_chars: 500, user_prompt_chars: 300,
+    history_chars: 200, directive_chars: 100,
+  }));
+  ms += 500;
+  result.push(line("api_call_finished", ms, {
+    ...base, attempt: 0, status: "error", duration_ms: 500,
+    error_code: "rate_limit_exceeded", error_message: "Rate limited",
+  }));
+  ms += 10;
+
+  // Attempt 1: started + finished (success)
+  result.push(line("api_call_started", ms, {
+    ...base, attempt: 1,
+    max_tokens: 150, system_prompt_chars: 500, user_prompt_chars: 300,
+    history_chars: 200, directive_chars: 100,
+  }));
+  ms += 1000;
+  result.push(line("api_call_finished", ms, {
+    ...base, attempt: 1, status: "success", duration_ms: 1000,
+    finish_reason: "stop", content_chars: 50,
+  }));
+  ms += 10;
+
+  // normalize_result links to the call_id
+  result.push(line("normalize_result", ms, {
+    ...base,
+    raw_kind: "json", json_extracted: true, fallback_path: "none",
+    truncation_suspected: false, thought_type: "string",
+    payload: { utterance: "hello", insistence: "mid", thought: "thinking" },
+  }));
+  ms += 10;
+
+  result.push(utteranceFilter({ callId: retryCallId, turn: 1, agent: "Alice", offsetMs: ms }));
+  ms += 10;
+  result.push(turnComplete(1, ms, "speech", "Alice"));
+  ms += 10;
+  result.push(sessionEnd(ms));
+  ms += 10;
+  result.push(sessionFinalState(ms));
+  ms += 10;
+  result.push(runFinished(ms));
+
+  return result;
+}
+
 // ── Infra-Fail Runs ─────────────────────────────────────────────────────────
 
 export type InfraFailType =
@@ -390,7 +469,10 @@ export type InfraFailType =
   | "duplicate_call_id"
   | "auth_error"
   | "model_error"
-  | "corrupt_event";
+  | "corrupt_event"
+  | "orphan_normalize"
+  | "orphan_filter"
+  | "duplicate_finished";
 
 export function buildInfraFailRun(failure: InfraFailType): string[] {
   resetCallSeq();
@@ -561,18 +643,17 @@ export function buildInfraFailRun(failure: InfraFailType): string[] {
       const lines: string[] = [];
       lines.push(runStarted(ms));
       ms += 10;
-      lines.push(
-        ...apiCallCycle({
-          turn: 1,
-          agent: "Alice",
-          mode: "reaction",
-          offsetMs: ms,
-          status: "error",
-          errorCode: "authentication_error",
-          errorMessage: "Invalid API key",
-          httpStatus: 401,
-        }),
-      );
+      const authCycle = apiCallCycle({
+        turn: 1,
+        agent: "Alice",
+        mode: "reaction",
+        offsetMs: ms,
+        status: "error",
+        errorCode: "authentication_error",
+        errorMessage: "Invalid API key",
+        httpStatus: 401,
+      });
+      lines.push(...authCycle.lines);
       ms += 1100;
       lines.push(runFinished(ms));
       return lines;
@@ -582,18 +663,17 @@ export function buildInfraFailRun(failure: InfraFailType): string[] {
       const lines: string[] = [];
       lines.push(runStarted(ms));
       ms += 10;
-      lines.push(
-        ...apiCallCycle({
-          turn: 1,
-          agent: "Alice",
-          mode: "reaction",
-          offsetMs: ms,
-          status: "error",
-          errorCode: "model_not_found",
-          errorMessage: "Model not found",
-          httpStatus: 404,
-        }),
-      );
+      const modelCycle = apiCallCycle({
+        turn: 1,
+        agent: "Alice",
+        mode: "reaction",
+        offsetMs: ms,
+        status: "error",
+        errorCode: "model_not_found",
+        errorMessage: "Model not found",
+        httpStatus: 404,
+      });
+      lines.push(...modelCycle.lines);
       ms += 1100;
       lines.push(runFinished(ms));
       return lines;
@@ -611,11 +691,95 @@ export function buildInfraFailRun(failure: InfraFailType): string[] {
           schema_version: SCHEMA_VERSION,
           run_id: RUN_ID,
           call_id: "corrupt-001",
+          turn: 1,
           agent: "Alice",
           mode: "reaction",
           // missing: status
         }),
       );
+      ms += 10;
+      lines.push(runFinished(ms));
+      return lines;
+    }
+
+    case "orphan_normalize": {
+      // normalize_result with call_id that has no api_call_finished
+      const lines: string[] = [];
+      lines.push(runStarted(ms));
+      ms += 10;
+      lines.push(
+        line("normalize_result", ms, {
+          call_id: "orphan-norm-001",
+          turn: 1,
+          agent: "Alice",
+          mode: "reaction",
+          raw_kind: "json",
+          json_extracted: true,
+          fallback_path: "none",
+          truncation_suspected: false,
+          thought_type: "string",
+          payload: {},
+        }),
+      );
+      ms += 10;
+      lines.push(runFinished(ms));
+      return lines;
+    }
+
+    case "orphan_filter": {
+      // utterance_filter_result with call_id that has no api_call_finished
+      const lines: string[] = [];
+      lines.push(runStarted(ms));
+      ms += 10;
+      lines.push(
+        line("utterance_filter_result", ms, {
+          call_id: "orphan-filter-001",
+          turn: 1,
+          agent: "Alice",
+          mode: "reaction",
+          original_utterance: "hello",
+          cleaned_utterance: "hello",
+          history_hallucination: false,
+          speaker_prefix_stripped: false,
+          action_stripped: false,
+          silence_by_length: false,
+          silence_token_detected: false,
+          dedup_dropped: false,
+        }),
+      );
+      ms += 10;
+      lines.push(runFinished(ms));
+      return lines;
+    }
+
+    case "duplicate_finished": {
+      // Same (call_id, attempt) appears twice in api_call_finished
+      const lines: string[] = [];
+      lines.push(runStarted(ms));
+      ms += 10;
+      const dupBase = {
+        call_id: "dup-fin-001",
+        turn: 1,
+        agent: "Alice",
+        mode: "reaction",
+        attempt: 0,
+        provider: "test",
+        model: "test-model",
+      };
+      lines.push(line("api_call_started", ms, {
+        ...dupBase,
+        max_tokens: 150, system_prompt_chars: 500, user_prompt_chars: 300,
+        history_chars: 200, directive_chars: 100,
+      }));
+      ms += 500;
+      lines.push(line("api_call_finished", ms, {
+        ...dupBase, status: "success", duration_ms: 500, finish_reason: "stop",
+      }));
+      ms += 10;
+      // Duplicate finished event
+      lines.push(line("api_call_finished", ms, {
+        ...dupBase, status: "success", duration_ms: 500, finish_reason: "stop",
+      }));
       ms += 10;
       lines.push(runFinished(ms));
       return lines;
@@ -650,17 +814,16 @@ export function buildMechanicsFailRun(failure: MechanicsFailType): string[] {
       for (let t = 1; t <= 4; t++) {
         lines.push(turnStart(t, ms));
         ms += 10;
-        lines.push(
-          ...apiCallCycle({
-            turn: t,
-            agent: "Alice",
-            mode: "reaction",
-            offsetMs: ms,
-            fallbackPath: "raw_text",
-          }),
-        );
+        const cycle = apiCallCycle({
+          turn: t,
+          agent: "Alice",
+          mode: "reaction",
+          offsetMs: ms,
+          fallbackPath: "raw_text",
+        });
+        lines.push(...cycle.lines);
         ms += 1100;
-        lines.push(utteranceFilter({ turn: t, agent: "Alice", offsetMs: ms }));
+        lines.push(utteranceFilter({ callId: cycle.callId, turn: t, agent: "Alice", offsetMs: ms }));
         ms += 10;
         lines.push(turnComplete(t, ms, "speech", "Alice"));
         ms += 10;
@@ -673,17 +836,16 @@ export function buildMechanicsFailRun(failure: MechanicsFailType): string[] {
       for (let t = 1; t <= 4; t++) {
         lines.push(turnStart(t, ms));
         ms += 10;
-        lines.push(
-          ...apiCallCycle({
-            turn: t,
-            agent: "Alice",
-            mode: "reaction",
-            offsetMs: ms,
-            truncationSuspected: true,
-          }),
-        );
+        const cycle = apiCallCycle({
+          turn: t,
+          agent: "Alice",
+          mode: "reaction",
+          offsetMs: ms,
+          truncationSuspected: true,
+        });
+        lines.push(...cycle.lines);
         ms += 1100;
-        lines.push(utteranceFilter({ turn: t, agent: "Alice", offsetMs: ms }));
+        lines.push(utteranceFilter({ callId: cycle.callId, turn: t, agent: "Alice", offsetMs: ms }));
         ms += 10;
         lines.push(turnComplete(t, ms, "speech", "Alice"));
         ms += 10;
@@ -696,11 +858,10 @@ export function buildMechanicsFailRun(failure: MechanicsFailType): string[] {
       for (let t = 1; t <= 4; t++) {
         lines.push(turnStart(t, ms));
         ms += 10;
-        lines.push(
-          ...apiCallCycle({ turn: t, agent: "Alice", mode: "reaction", offsetMs: ms }),
-        );
+        const cycle = apiCallCycle({ turn: t, agent: "Alice", mode: "reaction", offsetMs: ms });
+        lines.push(...cycle.lines);
         ms += 1100;
-        lines.push(utteranceFilter({ turn: t, agent: "Alice", offsetMs: ms }));
+        lines.push(utteranceFilter({ callId: cycle.callId, turn: t, agent: "Alice", offsetMs: ms }));
         ms += 10;
 
         lines.push(line("collision_start", ms, { colliders: ["Alice", "Bob"] }));
@@ -719,11 +880,10 @@ export function buildMechanicsFailRun(failure: MechanicsFailType): string[] {
       for (let t = 1; t <= 10; t++) {
         lines.push(turnStart(t, ms));
         ms += 10;
-        lines.push(
-          ...apiCallCycle({ turn: t, agent: "Alice", mode: "reaction", offsetMs: ms }),
-        );
+        const cycle = apiCallCycle({ turn: t, agent: "Alice", mode: "reaction", offsetMs: ms });
+        lines.push(...cycle.lines);
         ms += 1100;
-        lines.push(utteranceFilter({ turn: t, agent: "Alice", offsetMs: ms }));
+        lines.push(utteranceFilter({ callId: cycle.callId, turn: t, agent: "Alice", offsetMs: ms }));
         ms += 10;
 
         const speaker = t <= 8 ? "Alice" : "Bob";
@@ -738,12 +898,12 @@ export function buildMechanicsFailRun(failure: MechanicsFailType): string[] {
       for (let t = 1; t <= 4; t++) {
         lines.push(turnStart(t, ms));
         ms += 10;
-        lines.push(
-          ...apiCallCycle({ turn: t, agent: "Alice", mode: "reaction", offsetMs: ms }),
-        );
+        const cycle = apiCallCycle({ turn: t, agent: "Alice", mode: "reaction", offsetMs: ms });
+        lines.push(...cycle.lines);
         ms += 1100;
         lines.push(
           utteranceFilter({
+            callId: cycle.callId,
             turn: t,
             agent: "Alice",
             offsetMs: ms,
@@ -762,12 +922,12 @@ export function buildMechanicsFailRun(failure: MechanicsFailType): string[] {
       for (let t = 1; t <= 4; t++) {
         lines.push(turnStart(t, ms));
         ms += 10;
-        lines.push(
-          ...apiCallCycle({ turn: t, agent: "Alice", mode: "reaction", offsetMs: ms }),
-        );
+        const cycle = apiCallCycle({ turn: t, agent: "Alice", mode: "reaction", offsetMs: ms });
+        lines.push(...cycle.lines);
         ms += 1100;
         lines.push(
           utteranceFilter({
+            callId: cycle.callId,
             turn: t,
             agent: "Alice",
             offsetMs: ms,
@@ -785,11 +945,10 @@ export function buildMechanicsFailRun(failure: MechanicsFailType): string[] {
       // 1 evaluation with representative but 0 interruption_attempt events
       lines.push(turnStart(1, ms));
       ms += 10;
-      lines.push(
-        ...apiCallCycle({ turn: 1, agent: "Alice", mode: "reaction", offsetMs: ms }),
-      );
+      const cycle = apiCallCycle({ turn: 1, agent: "Alice", mode: "reaction", offsetMs: ms });
+      lines.push(...cycle.lines);
       ms += 1100;
-      lines.push(utteranceFilter({ turn: 1, agent: "Alice", offsetMs: ms }));
+      lines.push(utteranceFilter({ callId: cycle.callId, turn: 1, agent: "Alice", offsetMs: ms }));
       ms += 10;
       lines.push(interruptionEvaluation(1, ms, true));
       ms += 10;

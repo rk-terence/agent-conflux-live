@@ -117,7 +117,18 @@ Total event counts across the run:
 | Field | Type | Description |
 |-------|------|-------------|
 | eligible_for_l2 | boolean | True only when L0 pass AND L1 pass |
-| warnings | array | Non-fatal anomalies (reserved for future use) |
+| warnings | array | Non-fatal anomalies (see below) |
+
+### Warnings
+
+Context consistency checks that detect potential emitter bugs. These are warnings, not L0 blockers. If any become non-zero in real runs, consider promoting to L0 fail.
+
+| Warning | Meaning |
+|---------|---------|
+| `retry_context_mismatch_count: N` | N retries (same call_id, different attempt) where turn/agent/mode differs from the initial attempt |
+| `normalize_context_mismatch_count: N` | N normalize_result events where turn/agent/mode differs from the originating api_call |
+| `filter_context_mismatch_count: N` | N utterance_filter_result events where turn/agent/mode differs from the originating api_call |
+| `normalize_on_failed_call_count: N` | N normalize_result events linked to a call_id with no successful api_call_finished |
 
 ---
 
@@ -136,11 +147,14 @@ Binary pass/fail. Checks whether the run infrastructure was operationally valid.
 | `fatal_error_event` | Any fatal_error event exists |
 | `ndjson_parse_failure` | One or more lines failed JSON.parse |
 | `inconsistent_run_id` | Multiple distinct run_id values across events |
-| `orphan_api_call_finished` | api_call_finished without matching api_call_started |
-| `duplicate_call_id` | Same call_id appears in multiple api_call_started events |
+| `orphan_api_call_finished` | api_call_finished without matching api_call_started (keyed by call_id + attempt) |
+| `duplicate_call_id` | Same (call_id, attempt) pair appears in multiple api_call_started events |
+| `duplicate_api_call_finished` | Same (call_id, attempt) pair appears in multiple api_call_finished events |
 | `provider_auth_error` | Auth/permission/access denied errors from providers (error_code patterns or HTTP 401/403) |
 | `provider_invalid_model` | Invalid model errors (error_code patterns or HTTP 404 with "model" in message) |
-| `malformed_core_event` | Known event type missing required fields |
+| `malformed_core_event` | Known event type missing required fields (per-call events require call_id, turn, agent, mode) |
+| `orphan_normalize_result` | normalize_result.call_id not found in any api_call_finished |
+| `orphan_utterance_filter_result` | utterance_filter_result.call_id not found in any api_call_finished |
 
 ### What does NOT cause L0 fail
 
@@ -180,7 +194,7 @@ All thresholds are defined in `src/analysis/types.ts` as `THRESHOLDS`:
 | `speaker_monopoly` | One speaker > 60% of speech turns (when >= 8 speech turns) |
 | `high_dedup_drop_count` | dedup_drop_count >= 3 |
 | `high_clean_to_null_rate` | cleaned_to_null / filter_results > 0.25 |
-| `interruption_event_inconsistency` | interruption_attempt count != successful interruption_evaluation count |
+| `interruption_event_inconsistency` | interruption_attempt count != interruption_evaluation count where a representative was selected |
 | `blocked_by_l0` | L0 failed, L1 not evaluated |
 
 ---
@@ -192,6 +206,9 @@ All thresholds are defined in `src/analysis/types.ts` as `THRESHOLDS`:
 3. No model judgment: all rules are threshold-based.
 4. Division-by-zero guarded: rates are 0 when denominator is 0 (no fail triggered).
 5. API errors array capped at 100 entries.
+6. Lifecycle keyed by `(call_id, attempt)` — retries with the same call_id but different attempt numbers are valid, not duplicates.
+7. Per-call events require `call_id`, `turn`, `agent`, `mode`, and `attempt` (for api_call_started/finished). Missing fields → malformed_core_event L0 fail.
+8. Downstream events (normalize_result, utterance_filter_result) must link to a completed api_call via call_id. Orphans → L0 fail. Cross-field mismatches → warnings.
 
 ## Code Structure
 

@@ -3,6 +3,7 @@ import { readLogText } from "../read-log.js";
 import { summarizeRun } from "../summarize-run.js";
 import {
   buildCleanRun,
+  buildRetryRun,
   buildInfraFailRun,
   buildMechanicsFailRun,
   resetCallSeq,
@@ -95,6 +96,35 @@ describe("L0 classification", () => {
     const s = summarize(buildInfraFailRun("corrupt_event"));
     expect(s.classification.l0_infra.result).toBe("fail");
     expect(s.classification.l0_infra.reasons).toContain("malformed_core_event");
+  });
+
+  it("fails: orphan normalize_result", () => {
+    const s = summarize(buildInfraFailRun("orphan_normalize"));
+    expect(s.classification.l0_infra.result).toBe("fail");
+    expect(s.classification.l0_infra.reasons).toContain("orphan_normalize_result");
+  });
+
+  it("fails: orphan utterance_filter_result", () => {
+    const s = summarize(buildInfraFailRun("orphan_filter"));
+    expect(s.classification.l0_infra.result).toBe("fail");
+    expect(s.classification.l0_infra.reasons).toContain("orphan_utterance_filter_result");
+  });
+
+  it("fails: duplicate api_call_finished", () => {
+    const s = summarize(buildInfraFailRun("duplicate_finished"));
+    expect(s.classification.l0_infra.result).toBe("fail");
+    expect(s.classification.l0_infra.reasons).toContain("duplicate_api_call_finished");
+  });
+
+  it("does not fail on retries (same call_id, different attempt)", () => {
+    const s = summarize(buildRetryRun());
+    expect(s.classification.l0_infra.result).toBe("pass");
+    expect(s.classification.l0_infra.reasons).not.toContain("duplicate_call_id");
+    // Should count both attempts
+    expect(s.counts.api_calls_started).toBe(2);
+    expect(s.counts.api_calls_finished).toBe(2);
+    expect(s.counts.api_calls_succeeded).toBe(1);
+    expect(s.counts.api_calls_failed).toBe(1);
   });
 
   it("collects multiple L0 reasons", () => {
