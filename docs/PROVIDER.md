@@ -1,17 +1,20 @@
-# Provider Integration Notes
+---
+name: Provider
+description: Provider integration notes and model behavior — API protocol, model presets, known quirks.
+---
 
-## ZenMux Platform
+# ZenMux Platform
 
 ZenMux is an LLM aggregation platform — one API key accesses models from all major providers (OpenAI, Google, DeepSeek, Qwen, etc.).
 
 - Website: https://zenmux.ai
 - Docs: https://zenmux.ai/docs/about/intro.html
 
-### API Protocol
+## API Protocol
 
 Using OpenAI-compatible protocol (`https://zenmux.ai/api/v1/chat/completions`).
 
-### Key Gotchas
+## Key Gotchas
 
 - **API key encoding**: API keys pasted from Chinese IME may contain invisible Unicode chars. The provider adapter should strip non-printable ASCII on construction.
 - **Reasoning tokens eat max_tokens budget**: Thinking models (Gemini 2.5 Flash/Pro) spend most of `max_completion_tokens` on reasoning tokens, leaving almost nothing for actual output. Solution: set `thinkingModel: true` in `AgentConfig` — the provider adapter automatically multiplies `max_tokens` by 10 across all prompt modes.
@@ -19,15 +22,15 @@ Using OpenAI-compatible protocol (`https://zenmux.ai/api/v1/chat/completions`).
 - **Model slug format**: `provider/model-name`, e.g. `deepseek/deepseek-chat`, `google/gemini-2.5-flash`.
 - **Error responses can be HTML**: HTTP 500 from some models returns a full HTML error page. The provider adapter should truncate error bodies > 200 chars and try to extract JSON error messages.
 
-### Current Strategy: Full Response
+## Current Strategy: Full Response
 
 The LLM client returns the model's complete response — no sentence extraction or stop sequences. Models are instructed via system prompt to produce their full speech in one response.
 
-## Model Presets
+# Model Presets
 
 > Recommended `AgentConfig` configurations. These are reference examples — adjust model slugs as providers update their offerings.
 
-### Budget (for dev/iteration)
+## Budget (for dev/iteration)
 
 | Agent ID | Model Slug | Thinking | Notes |
 |----------|-----------|----------|-------|
@@ -35,7 +38,7 @@ The LLM client returns the model's complete response — no sentence extraction 
 | gemini | `google/gemini-2.5-flash` | yes | Needs high max_tokens due to reasoning overhead. Tends to be polite/yielding in negotiation. Produces verbose but substantive responses. |
 | qwen | `qwen/qwen3-vl-plus` | no | Good Chinese. Balanced negotiation behavior. Produces thoughtful responses with rhetorical questions. |
 
-### Premium (stronger models)
+## Premium (stronger models)
 
 | Agent ID | Model Slug | Thinking | Notes |
 |----------|-----------|----------|-------|
@@ -43,14 +46,14 @@ The LLM client returns the model's complete response — no sentence extraction 
 | gemini | `google/gemini-2.5-pro` | yes | Most capable Gemini, needs high max_tokens |
 | qwen | `qwen/qwen3-max` | no | Strongest Qwen variant |
 
-### Removed Models
+## Removed Models
 
 - **GPT-5n** (`openai/gpt-5-nano`): Returns empty content via ZenMux. Every response was `text: ""` with `finishReason: "stop_sequence"`. 3-5s latency suggests the API was processing but producing nothing. Removed.
 - **Mistral** (`mistralai/mistral-large-2512`): Consistently returns HTTP 422 (`provider_unprocessable_entity_error`). Not available through ZenMux. Removed.
 
-## Model Behavior Observations
+# Model Behavior Observations
 
-### Collision & Negotiation Dynamics
+## Collision & Negotiation Dynamics
 
 The collision problem was the central challenge of this project. Key findings:
 
@@ -59,7 +62,7 @@ The collision problem was the central challenge of this project. Key findings:
 - **Last-speaker-skip is essential**: Without it, assertive models (DeepSeek) monopolize the conversation by always insisting and always being polled.
 - **@mention awareness helps**: When an agent is @-mentioned, the reaction turn directive nudges them to respond, and the negotiation prompt highlights they have reason to insist — preventing the situation where everyone yields when someone was directly asked.
 
-### Per-Model Negotiation Personality
+## Per-Model Negotiation Personality
 
 Based on observed behavior with real API:
 
@@ -67,7 +70,7 @@ Based on observed behavior with real API:
 - **Gemini (2.5-flash)**: Very polite, tends to yield quickly. Often yields even when @-mentioned. Produces long, comprehensive responses when it does speak.
 - **Qwen (qwen3-vl-plus)**: Balanced. Will insist when it has something specific to say (especially when continuing a thread). Yields when the discussion doesn't directly involve it.
 
-### Normalization Issues
+## Normalization Issues
 
 Problems discovered and fixed at the normalization layer:
 
@@ -77,6 +80,6 @@ Problems discovered and fixed at the normalization layer:
 - **Gemini fragments**: With thinking models, reasoning tokens consume the budget, leaving outputs like `嗯，` or `DeepSeek`. Filtered by minimum length (4 chars).
 - **Cross-turn repetition**: Both DeepSeek and Qwen repeat the same sentence across different turns when context doesn't change much. Detected by scanning all committed sentences and collision utterances in the session.
 
-## Provider Testing
+# Provider Testing
 
 See README for setup. Use the session API with different `AgentConfig` presets to test provider behavior.

@@ -3,11 +3,7 @@
 README files are public-facing, including README.md (Chinese) and README_EN.md (English).
 They should be checked (and updated if outdated) before every `git push`.
 
-All other documentations are in the `docs` folder:
-
-- Top-level design specification: docs/DESIGN.md
-- Architecture, system design, and implementation details conforming to the design specification: docs/ARCHITECTURE.md
-- Provider integration notes and model behavior: docs/PROVIDER.md
+All other documentation is in the `docs/` folder. Each file has YAML frontmatter with `name`, `description`, and optional `references` fields — read the frontmatter to understand each doc's scope.
 
 They should be checked (and updated if outdated) before every `git commit`.
 

@@ -1,8 +1,12 @@
-# NDJSON Event Log Schema
+---
+name: Logging
+description: NDJSON event log schema — event types, fields, correlation rules, L0/L1 classification inputs.
+references: [ARCHITECTURE.md]
+---
 
 Schema version: **1** (`schema_version` field on every event)
 
-## Conventions
+# Conventions
 
 - Every event is a single JSON line in the NDJSON file.
 - Every event carries: `ts` (ISO-8601), `event` (string), `schema_version` (number), `run_id` (UUID).
@@ -11,7 +15,7 @@ Schema version: **1** (`schema_version` field on every event)
 - A run log is bounded by `run_started` (first) and `run_finished` (last, `terminal: true`).
 - If no `run_finished` exists, the process was killed externally (classify as infra fail).
 
-## Event Ordering (typical run)
+# Event Ordering (typical run)
 
 ```
 run_started
@@ -37,9 +41,9 @@ session_final_state
 run_finished
 ```
 
-## Event Reference
+# Event Reference
 
-### run_started
+## run_started
 
 First event in the log.
 
@@ -47,21 +51,21 @@ First event in the log.
 |-------|------|-------------|
 | config_path | string | Absolute path to the config file |
 
-### session_config
+## session_config
 
 | Field | Type | Description |
 |-------|------|-------------|
 | configPath | string | Absolute path to the config file |
 | config | object | Full session config (API keys redacted) |
 
-### turn_start
+## turn_start
 
 | Field | Type | Description |
 |-------|------|-------------|
 | turn | number | Turn number (starts at 1) |
 | virtualTime | number | Virtual time in seconds |
 
-### api_call_started
+## api_call_started
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -82,7 +86,7 @@ First event in the log.
 | history_chars | number | History portion of user prompt |
 | directive_chars | number | Directive portion of user prompt |
 
-### api_call_finished
+## api_call_finished
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -106,7 +110,7 @@ First event in the log.
 | error_code | string? | Structured error code from provider SDK (error only) |
 | error_message | string? | Error message (error only) |
 
-### normalize_result
+## normalize_result
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -128,7 +132,7 @@ Payload fields by mode:
 - **judge**: `interrupt`, `urgency`, `reason`, `thought`
 - **defense**: `yield`, `thought`
 
-### utterance_filter_result
+## utterance_filter_result
 
 Emitted for every reaction that produced a non-null utterance (before or after cleaning).
 
@@ -147,19 +151,19 @@ Emitted for every reaction that produced a non-null utterance (before or after c
 | silence_token_detected | boolean | Matched a silence token |
 | dedup_dropped | boolean | Dropped as verbatim duplicate |
 
-### reaction_results
+## reaction_results
 
 | Field | Type | Description |
 |-------|------|-------------|
 | results | object | Map of agent name → ReactionResult |
 
-### collision_start
+## collision_start
 
 | Field | Type | Description |
 |-------|------|-------------|
 | colliders | string[] | Agent names involved in collision |
 
-### collision_round
+## collision_round
 
 One event per resolution step.
 
@@ -173,7 +177,7 @@ One event per resolution step.
 | eliminated | string[] | Agents eliminated this round |
 | winner | string? | Winner if resolved this round (null otherwise) |
 
-### collision_resolved
+## collision_resolved
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -183,7 +187,7 @@ One event per resolution step.
 | colliders | array | All colliding parties |
 | votes | array | Tier 3 vote records |
 
-### interruption_evaluation
+## interruption_evaluation
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -200,27 +204,27 @@ One event per resolution step.
 | defense_yielded | boolean? | Whether speaker yielded (defense only) |
 | final_result | boolean | Whether interruption succeeded |
 
-### interruption_attempt
+## interruption_attempt
 
 | Field | Type | Description |
 |-------|------|-------------|
 | speaker | string | Speaker being interrupted |
 | interrupter | string | Interrupting agent |
 
-### turn_complete
+## turn_complete
 
 | Field | Type | Description |
 |-------|------|-------------|
 | record | TurnRecord | The committed turn record (silence or speech) |
 
-### thought_update
+## thought_update
 
 | Field | Type | Description |
 |-------|------|-------------|
 | agent | string | Agent name |
 | thought | string | Current thought text |
 
-### session_end
+## session_end
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -230,11 +234,11 @@ One event per resolution step.
 | speechCount | number | Number of speech records |
 | thoughtCount | number | Number of thought entries |
 
-### session_final_state
+## session_final_state
 
 Full session state dump for post-hoc analysis.
 
-### run_finished
+## run_finished
 
 **Terminal marker.** Last event in the log.
 
@@ -244,25 +248,25 @@ Full session state dump for post-hoc analysis.
 | end_reason | string? | Reason string |
 | terminal | true | Always true |
 
-### sigint_received
+## sigint_received
 
 Emitted when SIGINT is caught. No additional fields.
 
-### fatal_error
+## fatal_error
 
 | Field | Type | Description |
 |-------|------|-------------|
 | error | string | Error message |
 | stack | string? | Stack trace |
 
-## Correlating Events
+# Correlating Events
 
 - **Run**: All events share the same `run_id`.
 - **API call lifecycle**: `call_id` links `api_call_started` → `api_call_finished` → `normalize_result` → `utterance_filter_result`.
 - **Turn grouping**: Events between consecutive `turn_start` events belong to the same turn.
 - **Collision detail**: `collision_round` events between `collision_start` and `collision_resolved` show the round-by-round process.
 
-## L0/L1 Classification Inputs
+# L0/L1 Classification Inputs
 
 From the log alone, an offline job can determine:
 

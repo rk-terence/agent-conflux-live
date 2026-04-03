@@ -1,8 +1,10 @@
-# Run Summary & L0/L1 Classification
+---
+name: Run Summary
+description: Offline run summarizer — reads raw NDJSON logs, produces run-summary.json with deterministic L0/L1 classification.
+references: [LOGGING.md]
+---
 
-An offline summarizer that reads raw NDJSON logs and produces a machine-readable `run-summary.json` with deterministic L0/L1 classification.
-
-## Quick Start
+# Quick Start
 
 ```bash
 # Build first
@@ -19,11 +21,11 @@ Default output: `<input-path>.summary.json` (replaces `.ndjson` extension).
 
 Exit code: `0` if L0 passes, `1` if L0 fails.
 
-## Summary Output Schema
+# Summary Output Schema
 
 `schema_version: 1`
 
-### source
+## source
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -31,7 +33,7 @@ Exit code: `0` if L0 passes, `1` if L0 fails.
 | run_id | string? | UUID from the log events |
 | log_schema_version | number? | Schema version from the log events |
 
-### run
+## run
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -42,7 +44,7 @@ Exit code: `0` if L0 passes, `1` if L0 fails.
 | status | string? | Run outcome: completed, fatal_error, manual_stop, abandoned |
 | end_reason | string? | Why the run ended |
 
-### session
+## session
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -50,7 +52,7 @@ Exit code: `0` if L0 passes, `1` if L0 fails.
 | agents | array | Agent info: name, provider, model, thinkingModel |
 | config | object | Session config (excluding agents) |
 
-### counts
+## counts
 
 Total event counts across the run:
 
@@ -61,7 +63,7 @@ Total event counts across the run:
 - `normalize_results`, `utterance_filter_results`
 - `collisions`, `interruptions_attempted`
 
-### api
+## api
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -72,7 +74,7 @@ Total event counts across the run:
 | truncation_suspected_count | number | Normalize results with truncation_suspected |
 | fallback_count | number | Normalize results with fallback_path != "none" |
 
-### normalization
+## normalization
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -80,7 +82,7 @@ Total event counts across the run:
 | thought_type_counts | object | Counts by thought_type: string, null, missing, object, other |
 | raw_kind_counts | object | Counts by raw_kind: empty, json, plain_text |
 
-### filtering
+## filtering
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -92,7 +94,7 @@ Total event counts across the run:
 | silence_token_detected_count | number | Silence token matches |
 | cleaned_to_null_count | number | Utterances cleaned to null (silenced) |
 
-### mechanics
+## mechanics
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -103,7 +105,7 @@ Total event counts across the run:
 | interruption_success_count | number | Successful interruptions |
 | interruption_failure_count | number | Failed interruptions |
 
-### classification
+## classification
 
 ```json
 {
@@ -112,14 +114,14 @@ Total event counts across the run:
 }
 ```
 
-### Top-level
+## Top-level
 
 | Field | Type | Description |
 |-------|------|-------------|
 | eligible_for_l2 | boolean | True only when L0 pass AND L1 pass |
 | warnings | array | Non-fatal anomalies (see below) |
 
-### Warnings
+## Warnings
 
 Context consistency checks that detect potential emitter bugs. These are warnings, not L0 blockers. If any become non-zero in real runs, consider promoting to L0 fail.
 
@@ -132,11 +134,11 @@ Context consistency checks that detect potential emitter bugs. These are warning
 
 ---
 
-## L0 Infra Classification
+# L0 Infra Classification
 
 Binary pass/fail. Checks whether the run infrastructure was operationally valid.
 
-### Fail Reasons
+## Fail Reasons
 
 | Code | Trigger |
 |------|---------|
@@ -156,7 +158,7 @@ Binary pass/fail. Checks whether the run infrastructure was operationally valid.
 | `orphan_normalize_result` | normalize_result.call_id not found in any api_call_finished |
 | `orphan_utterance_filter_result` | utterance_filter_result.call_id not found in any api_call_finished |
 
-### What does NOT cause L0 fail
+## What does NOT cause L0 fail
 
 - Truncated model responses (L1)
 - Fallback normalization (L1)
@@ -164,13 +166,13 @@ Binary pass/fail. Checks whether the run infrastructure was operationally valid.
 
 ---
 
-## L1 Mechanics Classification
+# L1 Mechanics Classification
 
 Binary pass/fail. Only evaluated when L0 passes. If L0 fails, L1 is `not_evaluated` with reason `blocked_by_l0`.
 
 Checks whether the roundtable mechanics were operationally healthy.
 
-### Thresholds
+## Thresholds
 
 All thresholds are defined in `src/analysis/types.ts` as `THRESHOLDS`:
 
@@ -184,7 +186,7 @@ All thresholds are defined in `src/analysis/types.ts` as `THRESHOLDS`:
 | L1_DEDUP_DROP_COUNT | 3 | Absolute dedup drop threshold |
 | L1_CLEANED_TO_NULL_RATE | 0.25 | Max cleaned-to-null rate |
 
-### Fail Reasons
+## Fail Reasons
 
 | Code | Trigger |
 |------|---------|
@@ -199,7 +201,7 @@ All thresholds are defined in `src/analysis/types.ts` as `THRESHOLDS`:
 
 ---
 
-## Assumptions
+# Assumptions
 
 1. Targets the documented log schema in `docs/LOGGING.md` (schema_version 1) only.
 2. Deterministic: same input always produces same output.
@@ -210,7 +212,7 @@ All thresholds are defined in `src/analysis/types.ts` as `THRESHOLDS`:
 7. Per-call events require `call_id`, `turn`, `agent`, `mode`, and `attempt` (for api_call_started/finished). Missing fields → malformed_core_event L0 fail.
 8. Downstream events (normalize_result, utterance_filter_result) must link to a completed api_call via call_id. Orphans → L0 fail. Cross-field mismatches → warnings.
 
-## Code Structure
+# Code Structure
 
 ```
 src/analysis/

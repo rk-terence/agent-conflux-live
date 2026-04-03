@@ -1,10 +1,10 @@
-# Architecture
-
-Implementation architecture for AI Roundtable. Source of truth for module boundaries, types, data flow, and algorithms. Conforms to `DESIGN.md`; when in conflict, `DESIGN.md` takes precedence.
-
+---
+name: Architecture
+description: Implementation architecture — module boundaries, types, data flow, algorithms. Conforms to DESIGN.md.
+references: [DESIGN.md]
 ---
 
-## Tech Stack
+# Tech Stack
 
 - **Language**: TypeScript (strict mode)
 - **Runtime**: Node.js ≥ 20, ESM modules
@@ -13,7 +13,7 @@ Implementation architecture for AI Roundtable. Source of truth for module bounda
 
 ---
 
-## Project Structure
+# Project Structure
 
 ```
 src/
@@ -75,9 +75,9 @@ src/
 
 ---
 
-## Core Types
+# Core Types
 
-### Primitives
+## Primitives
 
 ```typescript
 type InsistenceLevel = "low" | "mid" | "high";
@@ -85,7 +85,7 @@ type PromptMode = "reaction" | "negotiation" | "voting" | "judge" | "defense";
 type Tier = "recent" | "medium" | "old";
 ```
 
-### Configuration
+## Configuration
 
 ```typescript
 interface AgentConfig {
@@ -114,7 +114,7 @@ interface SessionConfig {
 }
 ```
 
-### Turn Records (Event Log)
+## Turn Records (Event Log)
 
 The event log is an ordered array of `TurnRecord`. Turn 0 is always `DiscussionStartedRecord`. Each subsequent loop iteration appends one record.
 
@@ -150,7 +150,7 @@ interface SpeechRecord {
 }
 ```
 
-### Collision Types
+## Collision Types
 
 ```typescript
 interface CollisionInfo {
@@ -173,7 +173,7 @@ interface VoteEntry {
 }
 ```
 
-### Interruption Types
+## Interruption Types
 
 ```typescript
 interface InterruptionInfo {
@@ -186,7 +186,7 @@ interface InterruptionInfo {
 }
 ```
 
-### Thought Log
+## Thought Log
 
 Append-only record of all thought updates across the session. Each API call that returns a thought (string or null) produces an entry. This is the persistent log that DESIGN.md requires ("thought is recorded in logs").
 
@@ -199,7 +199,7 @@ interface ThoughtEntry {
 }
 ```
 
-### Agent State
+## Agent State
 
 Mutable per-agent state, updated each turn.
 
@@ -214,7 +214,7 @@ interface AgentState {
 }
 ```
 
-### Session State
+## Session State
 
 Top-level mutable state for a running discussion.
 
@@ -237,7 +237,7 @@ interface SessionState {
 }
 ```
 
-### Prompt Types
+## Prompt Types
 
 ```typescript
 interface PromptSet {
@@ -251,7 +251,7 @@ interface PromptSet {
 }
 ```
 
-### LLM Types
+## LLM Types
 
 ```typescript
 interface ChatRequest {
@@ -265,7 +265,7 @@ interface LLMClient {
 }
 ```
 
-### Normalization Result Types
+## Normalization Result Types
 
 ```typescript
 interface ReactionResult {
@@ -299,9 +299,9 @@ interface DefenseResult {
 
 ---
 
-## Session Lifecycle
+# Session Lifecycle
 
-### Initialization (`session.ts`)
+## Initialization (`session.ts`)
 
 `createSession(config: SessionConfig): SessionState`
 
@@ -318,7 +318,7 @@ interface DefenseResult {
 3. Append `DiscussionStartedRecord` as turn 0
 4. Return `SessionState` with `currentTurn: 1`, `virtualTime: 0`
 
-### State Mutations
+## State Mutations
 
 All state mutations go through helper functions in `session.ts` and `agent-state.ts`. The discussion loop never mutates state directly — it calls these helpers:
 
@@ -338,7 +338,7 @@ All state mutations go through helper functions in `session.ts` and `agent-state
 - `setLastSpeaker(session, name)` — set last speaker (called in `handleSpeech`)
 - `clearLastSpeaker(session)` — set lastSpeaker to null (called at the start of each turn after reading it, so the skip lasts exactly one round)
 
-### Virtual Time Advancement (`virtual-clock.ts`)
+## Virtual Time Advancement (`virtual-clock.ts`)
 
 `computeTurnTimeCost(record: SpeechRecord | SilenceRecord, config: SessionConfig): number`
 
@@ -358,9 +358,9 @@ else → record.utterance
 
 ---
 
-## Discussion Loop
+# Discussion Loop
 
-### Main Loop (`discussion-loop.ts`)
+## Main Loop (`discussion-loop.ts`)
 
 `runDiscussion(session: SessionState, clients: Map<string, LLMClient>, observer?: SessionObserver, logCtx?: LogContext): Promise<void>`
 
@@ -416,7 +416,7 @@ function runOneTurn(session, clients):
   session.currentTurn++
 ```
 
-### Silence Handling
+## Silence Handling
 
 ```
 function handleSilence(session):
@@ -428,7 +428,7 @@ function handleSilence(session):
   session.silenceBackoffStep++
 ```
 
-### Speech Handling
+## Speech Handling
 
 ```
 function handleSpeech(session, clients, speaker, collisionInfo, overrideTimestamp?):
@@ -466,7 +466,7 @@ function handleSpeech(session, clients, speaker, collisionInfo, overrideTimestam
     recordInterrupted(speaker.agent)
 ```
 
-### Collision Handling
+## Collision Handling
 
 ```
 function handleCollision(session, clients, speakers):
@@ -496,7 +496,7 @@ function handleCollision(session, clients, speakers):
   await handleSpeech(session, clients, winner, collisionInfo, turnTimestamp)
 ```
 
-### End Conditions
+## End Conditions
 
 `shouldEnd(session): string | null` — returns reason or null.
 
@@ -508,7 +508,7 @@ Checked at the **start** of each iteration:
 
 Fatal errors during the loop set `endReason` to `"fatal_error"`.
 
-### Verbatim Deduplication (`dedup.ts`)
+## Verbatim Deduplication (`dedup.ts`)
 
 `isDuplicate(utterance: string, log: TurnRecord[]): boolean`
 
@@ -518,7 +518,7 @@ Compares `utterance.trim()` against all previous utterances:
 
 Exact string match after trimming. Returns true if any match found.
 
-### Collision Streak Tracking
+## Collision Streak Tracking
 
 The session tracks consecutive collision turns for the collision notice hint:
 - `collisionStreak`: increments each turn a collision occurs; resets to 0 on non-collision turns (silence or solo speech)
@@ -526,19 +526,19 @@ The session tracks consecutive collision turns for the collision notice hint:
 
 ---
 
-## Collision Resolution (`collision.ts`)
+# Collision Resolution (`collision.ts`)
 
 `resolveCollision(session, clients, speakers, observer?, logCtx?): Promise<CollisionInfo>`
 
 Input: array of `{ agent, utterance, insistence }` from reaction results (2+ entries).
 
-### Tier 1 — Insistence Comparison (zero calls)
+## Tier 1 — Insistence Comparison (zero calls)
 
 1. Group speakers by insistence: high > mid > low
 2. If exactly one speaker at the highest level → that speaker wins
 3. Otherwise → proceed to Tier 2 with tied-highest candidates
 
-### Tier 2 — Negotiation (max 3 rounds)
+## Tier 2 — Negotiation (max 3 rounds)
 
 Candidates = tied-highest from Tier 1. Runs up to `config.maxNegotiationRounds` rounds.
 
@@ -554,7 +554,7 @@ Candidates = tied-highest from Tier 1. Runs up to `config.maxNegotiationRounds` 
 
 If no winner after max rounds → proceed to Tier 3.
 
-### Tier 3 — Bystander Voting
+## Tier 3 — Bystander Voting
 
 Voters = all agents NOT in the collision (including the last speaker who sat out of reaction).
 
@@ -567,11 +567,11 @@ If no voters available (all agents are colliders) → skip to Tier 4.
 5. Tally valid votes (votes matching a candidate name)
 6. Candidate with most votes wins. On tie or zero valid votes → Tier 4.
 
-### Tier 4 — Random
+## Tier 4 — Random
 
 Select uniformly at random from remaining candidates. Guarantees convergence.
 
-### Return Value
+## Return Value
 
 ```typescript
 CollisionInfo {
@@ -585,9 +585,9 @@ CollisionInfo {
 
 ---
 
-## Interruption (`interruption.ts`)
+# Interruption (`interruption.ts`)
 
-### Sentence Splitting (`util/sentence-split.ts`)
+## Sentence Splitting (`util/sentence-split.ts`)
 
 `splitUtterance(text: string, threshold: number, tokenCount: fn): { spokenPart: string, unspokenPart: string } | null`
 
@@ -596,7 +596,7 @@ CollisionInfo {
 3. If no valid boundary found → return `null` (no split possible)
 4. Return `{ spokenPart: text[0..boundary], unspokenPart: text[boundary..end] }`
 
-### Evaluation Flow
+## Evaluation Flow
 
 `evaluateInterruption(session, clients, speaker, effectiveInsistence: InsistenceLevel, observer?, logCtx?): Promise<InterruptionInfo | null>`
 
@@ -610,7 +610,7 @@ CollisionInfo {
 8. Filter for `interrupt: true`; if none → return null
 9. Select representative: highest urgency among interrupters; ties broken randomly
 
-### Negotiation
+## Negotiation
 
 **Phase 1 — Auto-resolution** (zero additional calls):
 
@@ -629,7 +629,7 @@ Insistence ordering: `low < mid < high`.
 4. Update speaker's thought
 5. `yield: true` → success; `yield: false` → fail
 
-### Return Value
+## Return Value
 
 ```typescript
 InterruptionInfo {
@@ -644,9 +644,9 @@ InterruptionInfo {
 
 ---
 
-## Prompt Assembly (`prompt/`)
+# Prompt Assembly (`prompt/`)
 
-### Overview
+## Overview
 
 Every API call produces a `PromptSet { systemPrompt, userPrompt, maxTokens }`.
 
@@ -654,7 +654,7 @@ Every API call produces a `PromptSet { systemPrompt, userPrompt, maxTokens }`.
 - `userPrompt` → user message = projectedHistory + `"\n\n"` + turnDirective (history omitted if empty)
 - `maxTokens` → per mode (reaction: 150, negotiation: 50, voting: 50, judge: 50, defense: 50). If `agent.config.thinkingModel` is true, the provider adapter multiplies the value by 10 to compensate for reasoning token overhead.
 
-### Prompt Builder (`prompt-builder.ts`)
+## Prompt Builder (`prompt-builder.ts`)
 
 One public function per mode. Each composes: system prompt + projected history + turn directive.
 
@@ -688,7 +688,7 @@ interface DefenseContext {
 }
 ```
 
-### System Prompts (`system-prompts.ts`)
+## System Prompts (`system-prompts.ts`)
 
 Five template functions, one per mode. Templates are exactly as specified in DESIGN.md. Each takes the necessary variables and returns a rendered string via the template engine.
 
@@ -699,7 +699,7 @@ Template variables:
 - **Judge**: `agentName`, `topic`, `speakerName`
 - **Defense**: `agentName`, `topic`, `interrupterName`
 
-### History Projection (`history-projector.ts`)
+## History Projection (`history-projector.ts`)
 
 `projectHistory(session: SessionState, viewer: string): string`
 
@@ -743,7 +743,7 @@ Each record type renders differently at each tier. Below specifies the differenc
 | Speech + collision + interruption (fail) | Collision block with full speech + failed attempt note | Same but **omit** yielder's unsaid block | `- [{time}] 多人同时开口，{winner} 先说了，{interrupter} 试图打断未果` + full speech |
 | Silence | `安静了 N 秒（累计 M 秒）` | Same | `（安静了一阵）` |
 
-### Turn Directive Assembly (`turn-directive.ts`)
+## Turn Directive Assembly (`turn-directive.ts`)
 
 One function per mode. Assembles the directive string following the exact order specified in DESIGN.md.
 
@@ -767,7 +767,7 @@ The DESIGN.md defense directive template includes `{{interrupterName}} 想打断
 
 This is the only directive that requires conditional construction. The template engine itself remains strict (string-only variables); the conditional is handled in `buildDefenseDirective`.
 
-### Situational Hints (`hints.ts`)
+## Situational Hints (`hints.ts`)
 
 ```typescript
 function getMentionHint(agent: AgentState, session: SessionState, mode: "reaction" | "negotiation"): string | null
@@ -791,7 +791,7 @@ Uses regex: `@{exactName}(?=\W|$)` where `exactName` is the agent's configured n
 
 **Collision notice**: triggered when `session.collisionStreak > 0`. Format includes `collisionStreakColliders` for the "每次都在抢话" clause.
 
-### Template Engine (`template.ts`)
+## Template Engine (`template.ts`)
 
 `renderTemplate(template: string, vars: Record<string, string>): string`
 
@@ -801,9 +801,9 @@ Uses regex: `@{exactName}(?=\W|$)` where `exactName` is the agent's configured n
 
 ---
 
-## Response Normalization (`normalize/`)
+# Response Normalization (`normalize/`)
 
-### JSON Extraction (`json-extract.ts`)
+## JSON Extraction (`json-extract.ts`)
 
 `extractJSON(raw: string): object | null`
 
@@ -813,7 +813,7 @@ Uses regex: `@{exactName}(?=\W|$)` where `exactName` is the agent's configured n
 4. Attempt `JSON.parse`
 5. Return parsed object or null on failure
 
-### Utterance Cleaning (`utterance-clean.ts`)
+## Utterance Cleaning (`utterance-clean.ts`)
 
 `cleanUtterance(text: string, agentNames: string[]): CleanUtteranceResult`
 
@@ -834,11 +834,11 @@ Pipeline (applied in order; if any step produces null, return null):
 4. **Trim** whitespace
 5. **Minimum length**: if result length < 4 characters → return null
 
-### Per-Mode Normalization
+## Per-Mode Normalization
 
 Each normalizer function takes the raw LLM response string and returns the mode-specific result type with attached normalization metadata (`_normMeta: NormalizeMeta`). The `NormalizeMeta` includes `rawKind` (empty/json/plain_text), `jsonExtracted` (boolean), `fallbackPath` (none/raw_text/keyword/default), `truncationSuspected` (boolean), and `thoughtType` (string/null/missing). This metadata enables structured logging of normalization decisions without parsing strings twice.
 
-#### Reaction (`reaction.ts`)
+### Reaction (`reaction.ts`)
 
 `normalizeReaction(raw: string, agentNames: string[], previousUtterances: string[]): ReactionResult`
 
@@ -855,7 +855,7 @@ Follows DESIGN.md normalization rules exactly:
    - Other cleaning results in null → silence (thought preserved from step 2)
 5. Final thought: if utterance survived cleaning, thought from step 2 is used as-is
 
-#### Negotiation (`negotiation.ts`)
+### Negotiation (`negotiation.ts`)
 
 `normalizeNegotiation(raw: string): NegotiationResult`
 
@@ -865,7 +865,7 @@ Follows DESIGN.md normalization rules exactly:
 4. Keyword fallback on raw text: scan for "high"/"坚持", "mid"/"犹豫"/"中", "low"/"让步"/"让"
 5. Default insistence: `"low"`; default thought: `null` (only if JSON extraction failed entirely)
 
-#### Voting (`voting.ts`)
+### Voting (`voting.ts`)
 
 `normalizeVoting(raw: string, candidates: string[]): VotingResult`
 
@@ -874,7 +874,7 @@ Follows DESIGN.md normalization rules exactly:
 3. Fallback: `raw.trim()` as vote (thought defaults to `null`)
 4. Match vote against candidate names (exact match); unrecognized → `vote: null`
 
-#### Interruption Judge (`judge.ts`)
+### Interruption Judge (`judge.ts`)
 
 `normalizeJudge(raw: string): JudgeResult`
 
@@ -884,7 +884,7 @@ Follows DESIGN.md normalization rules exactly:
 4. `urgency` not valid InsistenceLevel → `"low"`
 5. `reason` not string → `null`
 
-#### Interruption Defense (`defense.ts`)
+### Interruption Defense (`defense.ts`)
 
 `normalizeDefense(raw: string): DefenseResult`
 
@@ -892,7 +892,7 @@ Follows DESIGN.md normalization rules exactly:
 2. `thought`: string → use; null/absent/non-string/unparseable → `null`
 3. `yield` not boolean → `true` (conservative: yield)
 
-#### API Failure Fallback
+### API Failure Fallback
 
 All modes: after exhausting `config.apiRetries` retries:
 - Reaction → `{ utterance: null, insistence: "mid", thought: null }` (silence)
@@ -903,9 +903,9 @@ All modes: after exhausting `config.apiRetries` retries:
 
 ---
 
-## LLM Client (`llm/`)
+# LLM Client (`llm/`)
 
-### Interface (`client.ts`)
+## Interface (`client.ts`)
 
 ```typescript
 interface LLMClient {
@@ -935,7 +935,7 @@ interface ChatRequestMeta {
 
 Returns the raw text content of the model's response. The `_meta` field carries observability context that the API hook reads for structured logging; it is not included in the API payload.
 
-### Provider Abstraction (`providers/`)
+## Provider Abstraction (`providers/`)
 
 Each provider adapter implements `LLMClient` and handles API-specific details:
 
@@ -947,11 +947,11 @@ A factory function creates the appropriate client:
 
 `createClient(config: AgentConfig, onApiCall?: ApiCallHook): LLMClient`
 
-### Instrumentation Hook
+## Instrumentation Hook
 
 The optional `ApiCallHook` callback fires twice per API call: once with `phase: "started"` before the HTTP request, and once with `phase: "finished"` after the response (or error). The `ApiCallInfo` object carries the full request (including `_meta` for context), and on finish: raw response, usage tokens (`promptTokens`, `completionTokens`, `reasoningTokens`), `finishReason`, `httpStatus`, and timing. The hook is best-effort: exceptions are silently caught so telemetry cannot alter request semantics or cause spurious retries.
 
-### Retry Wrapper (`retry.ts`)
+## Retry Wrapper (`retry.ts`)
 
 `withRetry<T>(fn: () => Promise<T>, retries: number, onAttempt?: (attempt: number) => void): Promise<T>`
 
@@ -959,7 +959,7 @@ Retries on network errors, rate limits (with backoff), API errors, and request c
 
 ---
 
-## Token Counting (`util/token-count.ts`)
+# Token Counting (`util/token-count.ts`)
 
 `createTokenCounter(custom?: (text: string) => number): (text: string) => number`
 
@@ -973,7 +973,7 @@ This approximates the average tokenization ratio for Chinese text across common 
 
 ---
 
-## Name List Formatting (`util/name-list.ts`)
+# Name List Formatting (`util/name-list.ts`)
 
 `formatNameList(names: string[]): string`
 
@@ -983,7 +983,7 @@ This approximates the average tokenization ratio for Chinese text across common 
 
 ---
 
-## Observer Interface
+# Observer Interface
 
 For real-time output and logging, the discussion loop accepts an optional observer:
 
@@ -1016,7 +1016,7 @@ See `docs/LOGGING.md` for the full NDJSON event schema.
 
 ---
 
-## Configuration Reference
+# Configuration Reference
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -1036,9 +1036,9 @@ See `docs/LOGGING.md` for the full NDJSON event schema.
 
 ---
 
-## Error Handling
+# Error Handling
 
-### Layer Strategy
+## Layer Strategy
 
 | Layer | Error | Response |
 |-------|-------|----------|
@@ -1049,7 +1049,7 @@ See `docs/LOGGING.md` for the full NDJSON event schema.
 | Session | Invalid config | Throw on `createSession` — fail fast |
 | Discussion loop | Unrecoverable error | Set `endReason = "fatal_error"`, call observer, stop loop |
 
-### Invariants
+## Invariants
 
 - The event log is append-only; records are never modified or deleted
 - Agent thought is always updated even when the agent's action is discarded (collision loser, floor holder override)
