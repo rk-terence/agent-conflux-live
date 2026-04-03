@@ -148,6 +148,7 @@ Emitted for every reaction that produced a non-null utterance (before or after c
 | speaker_prefix_stripped | boolean | Speaker prefix was removed |
 | action_stripped | boolean | Parenthetical actions were removed |
 | silence_by_length | boolean | Silenced due to < 4 chars after cleaning |
+| truncated_by_max_length | boolean | Utterance exceeded max length cap and was truncated at sentence boundary (or silenced if no boundary) |
 | silence_token_detected | boolean | Matched a silence token |
 | dedup_dropped | boolean | Dropped as verbatim duplicate |
 

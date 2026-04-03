@@ -11,9 +11,15 @@ export function createAgentState(config: AgentConfig): AgentState {
   };
 }
 
+/** Max characters for persisted thought. Prevents unbounded prompt growth
+ *  when thought text is injected into subsequent turn directives. */
+export const MAX_THOUGHT_CHARS = 200;
+
 export function updateThought(agent: AgentState, thought: string | null): void {
   if (thought !== null) {
-    agent.currentThought = thought;
+    agent.currentThought = thought.length > MAX_THOUGHT_CHARS
+      ? thought.slice(0, MAX_THOUGHT_CHARS)
+      : thought;
   }
   // null means "unchanged" — keep previous thought
 }

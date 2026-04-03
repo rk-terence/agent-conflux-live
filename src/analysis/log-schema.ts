@@ -89,6 +89,7 @@ export interface UtteranceFilterResultEvent extends BaseEvent, PerCallFields {
   speaker_prefix_stripped: boolean;
   action_stripped: boolean;
   silence_by_length: boolean;
+  truncated_by_max_length: boolean;
   silence_token_detected: boolean;
   dedup_dropped: boolean;
 }

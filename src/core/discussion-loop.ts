@@ -178,6 +178,7 @@ async function runOneTurn(
         speakerPrefixStripped: meta?._cleanMeta?.speakerPrefixStripped ?? false,
         actionStripped: meta?._cleanMeta?.actionStripped ?? false,
         silenceByLength: false,
+        truncatedByMaxLength: meta?._cleanMeta?.truncatedByMaxLength ?? false,
         silenceTokenDetected: meta?._cleanMeta?.silenceTokenDetected ?? false,
         dedupDropped: dup,
       });
@@ -198,6 +199,7 @@ async function runOneTurn(
         speakerPrefixStripped: meta._cleanMeta.speakerPrefixStripped,
         actionStripped: meta._cleanMeta.actionStripped,
         silenceByLength: meta._cleanMeta.silenceByLength,
+        truncatedByMaxLength: meta._cleanMeta.truncatedByMaxLength,
         silenceTokenDetected: meta._cleanMeta.silenceTokenDetected,
         dedupDropped: false,
       });

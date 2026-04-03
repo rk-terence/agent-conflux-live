@@ -38,6 +38,7 @@ export interface UtteranceFilterInfo {
   speakerPrefixStripped: boolean;
   actionStripped: boolean;
   silenceByLength: boolean;
+  truncatedByMaxLength: boolean;
   silenceTokenDetected: boolean;
   dedupDropped: boolean;
 }

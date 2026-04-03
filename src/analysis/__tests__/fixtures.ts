@@ -70,6 +70,9 @@ function apiCallCycle(opts: {
   errorCode?: string;
   errorMessage?: string;
   httpStatus?: number;
+  historyChars?: number;
+  userPromptChars?: number;
+  contentChars?: number;
 }): { lines: string[]; callId: string } {
   const id = callId();
   const dur = opts.durationMs ?? 1000;
@@ -86,8 +89,8 @@ function apiCallCycle(opts: {
       model: "test-model",
       max_tokens: 150,
       system_prompt_chars: 500,
-      user_prompt_chars: 300,
-      history_chars: 200,
+      user_prompt_chars: opts.userPromptChars ?? 300,
+      history_chars: opts.historyChars ?? 200,
       directive_chars: 100,
     }),
   );
@@ -108,7 +111,7 @@ function apiCallCycle(opts: {
 
   if (status === "success") {
     finishedExtra.finish_reason = opts.finishReason ?? "stop";
-    finishedExtra.content_chars = 100;
+    finishedExtra.content_chars = opts.contentChars ?? 100;
   } else {
     if (opts.errorCode) finishedExtra.error_code = opts.errorCode;
     if (opts.errorMessage) finishedExtra.error_message = opts.errorMessage;
@@ -150,18 +153,21 @@ function utteranceFilter(opts: {
   speakerPrefixStripped?: boolean;
   actionStripped?: boolean;
   cleanedToNull?: boolean;
+  cleanedUtterance?: string;
 }): string {
+  const utteranceText = opts.cleanedUtterance ?? "hello world";
   return line("utterance_filter_result", opts.offsetMs, {
     call_id: opts.callId,
     turn: opts.turn,
     agent: opts.agent,
     mode: "reaction",
-    original_utterance: "hello world",
-    cleaned_utterance: opts.cleanedToNull ? null : "hello world",
+    original_utterance: utteranceText,
+    cleaned_utterance: opts.cleanedToNull ? null : utteranceText,
     history_hallucination: opts.historyHallucination ?? false,
     speaker_prefix_stripped: opts.speakerPrefixStripped ?? false,
     action_stripped: opts.actionStripped ?? false,
     silence_by_length: opts.silenceByLength ?? false,
+    truncated_by_max_length: false,
     silence_token_detected: opts.silenceTokenDetected ?? false,
     dedup_dropped: opts.dedupDropped ?? false,
   });
@@ -250,8 +256,8 @@ function interruptionAttempt(offsetMs: number): string {
   });
 }
 
-function thoughtUpdate(agent: string, offsetMs: number): string {
-  return line("thought_update", offsetMs, { agent, thought: "I am thinking" });
+function thoughtUpdate(agent: string, offsetMs: number, thought?: string): string {
+  return line("thought_update", offsetMs, { agent, thought: thought ?? "I am thinking" });
 }
 
 function sessionEnd(offsetMs: number, reason = "silence_timeout"): string {
@@ -743,6 +749,7 @@ export function buildInfraFailRun(failure: InfraFailType): string[] {
           speaker_prefix_stripped: false,
           action_stripped: false,
           silence_by_length: false,
+          truncated_by_max_length: false,
           silence_token_detected: false,
           dedup_dropped: false,
         }),
@@ -963,6 +970,69 @@ export function buildMechanicsFailRun(failure: MechanicsFailType): string[] {
   ms += 10;
   lines.push(sessionFinalState(ms));
   ms += 10;
+  lines.push(runFinished(ms));
+
+  return lines;
+}
+
+// ── Size-Varied Run ───────────────────────────────────────────────────────
+
+/** 3-turn run with escalating prompt/response/thought/utterance sizes. */
+export function buildSizeVariedRun(): string[] {
+  resetCallSeq();
+  let ms = 0;
+  const lines: string[] = [];
+
+  lines.push(runStarted(ms)); ms += 10;
+  lines.push(sessionConfig(ms)); ms += 10;
+
+  // Turn 1: small sizes
+  lines.push(turnStart(1, ms)); ms += 10;
+  const c1 = apiCallCycle({
+    turn: 1, agent: "Alice", mode: "reaction", offsetMs: ms,
+    historyChars: 100, userPromptChars: 150, contentChars: 40,
+  });
+  lines.push(...c1.lines); ms += 1100;
+  lines.push(utteranceFilter({
+    callId: c1.callId, turn: 1, agent: "Alice", offsetMs: ms,
+    cleanedUtterance: "hi",
+  }));
+  ms += 10;
+  lines.push(turnComplete(1, ms, "speech", "Alice")); ms += 10;
+  lines.push(thoughtUpdate("Alice", ms, "ok")); ms += 10;
+
+  // Turn 2: medium sizes
+  lines.push(turnStart(2, ms)); ms += 10;
+  const c2 = apiCallCycle({
+    turn: 2, agent: "Bob", mode: "reaction", offsetMs: ms,
+    historyChars: 500, userPromptChars: 600, contentChars: 150,
+  });
+  lines.push(...c2.lines); ms += 1100;
+  lines.push(utteranceFilter({
+    callId: c2.callId, turn: 2, agent: "Bob", offsetMs: ms,
+    cleanedUtterance: "hello there friend",
+  }));
+  ms += 10;
+  lines.push(turnComplete(2, ms, "speech", "Bob")); ms += 10;
+  lines.push(thoughtUpdate("Bob", ms, "I need to think about this carefully")); ms += 10;
+
+  // Turn 3: large sizes
+  lines.push(turnStart(3, ms)); ms += 10;
+  const c3 = apiCallCycle({
+    turn: 3, agent: "Carol", mode: "reaction", offsetMs: ms,
+    historyChars: 2000, userPromptChars: 2400, contentChars: 500,
+  });
+  lines.push(...c3.lines); ms += 1100;
+  lines.push(utteranceFilter({
+    callId: c3.callId, turn: 3, agent: "Carol", offsetMs: ms,
+    cleanedUtterance: "this is a much longer utterance for testing",
+  }));
+  ms += 10;
+  lines.push(turnComplete(3, ms, "speech", "Carol")); ms += 10;
+  lines.push(thoughtUpdate("Carol", ms, "x".repeat(100))); ms += 10;
+
+  lines.push(sessionEnd(ms)); ms += 10;
+  lines.push(sessionFinalState(ms)); ms += 10;
   lines.push(runFinished(ms));
 
   return lines;

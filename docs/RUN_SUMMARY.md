@@ -23,7 +23,7 @@ Exit code: `0` if L0 passes, `1` if L0 fails.
 
 # Summary Output Schema
 
-`schema_version: 1`
+`schema_version: 2`
 
 ## source
 
@@ -91,6 +91,7 @@ Total event counts across the run:
 | speaker_prefix_stripped_count | number | Speaker prefix removals |
 | action_stripped_count | number | Parenthetical action removals |
 | silence_by_length_count | number | Silenced due to < 4 chars |
+| truncated_by_max_length_count | number | Utterances truncated or silenced by max length cap |
 | silence_token_detected_count | number | Silence token matches |
 | cleaned_to_null_count | number | Utterances cleaned to null (silenced) |
 
@@ -104,6 +105,28 @@ Total event counts across the run:
 | tier4_count | number | Tier 4 (random) resolutions |
 | interruption_success_count | number | Successful interruptions |
 | interruption_failure_count | number | Failed interruptions |
+
+## sizes
+
+Size statistics for prompt inputs, model responses, thoughts, and utterances.
+Each field is `null` when no data points were collected.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| prompt_history_chars | SizeStats? | min/max/avg of `history_chars` across all `api_call_started` events |
+| prompt_user_chars | SizeStats? | min/max/avg of `user_prompt_chars` across all `api_call_started` events |
+| response_content_chars | SizeStats? | min/max/avg of `content_chars` across successful `api_call_finished` events |
+| thought_chars | SizeStats? | min/max/avg of thought string lengths from `thought_update` events |
+| utterance_cleaned_chars | SizeStats? | min/max/avg of `cleaned_utterance` lengths (non-null only) from `utterance_filter_result` events |
+
+**SizeStats shape:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| min | number | Minimum observed value |
+| max | number | Maximum observed value |
+| avg | number | Mean, rounded to nearest integer |
+| count | number | Number of data points |
 
 ## classification
 

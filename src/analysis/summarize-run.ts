@@ -6,6 +6,8 @@ import type {
   ApiModeStats,
   ApiAgentStats,
   ApiErrorEntry,
+  SizeStats,
+  SizeAccumulator,
 } from "./types.js";
 import { SUMMARY_SCHEMA_VERSION } from "./types.js";
 import { classifyRun } from "./classify-run.js";
@@ -58,6 +60,22 @@ function ensureMode(
     byMode[mode] = { started: 0, succeeded: 0, failed: 0, total_duration_ms: 0 };
   }
   return byMode[mode];
+}
+
+function newSizeAcc(): SizeAccumulator {
+  return { min: Infinity, max: -Infinity, sum: 0, count: 0 };
+}
+
+function pushSize(acc: SizeAccumulator, value: number): void {
+  if (value < acc.min) acc.min = value;
+  if (value > acc.max) acc.max = value;
+  acc.sum += value;
+  acc.count++;
+}
+
+function finalizeSizeStats(acc: SizeAccumulator): SizeStats | null {
+  if (acc.count === 0) return null;
+  return { min: acc.min, max: acc.max, avg: Math.round(acc.sum / acc.count), count: acc.count };
 }
 
 function ensureAgent(
@@ -139,6 +157,7 @@ export function summarizeRun(
       speaker_prefix_stripped_count: 0,
       action_stripped_count: 0,
       silence_by_length_count: 0,
+      truncated_by_max_length_count: 0,
       silence_token_detected_count: 0,
       cleaned_to_null_count: 0,
     },
@@ -149,6 +168,13 @@ export function summarizeRun(
       tier4_count: 0,
       interruption_success_count: 0,
       interruption_failure_count: 0,
+    },
+    sizes: {
+      prompt_history_chars: null,
+      prompt_user_chars: null,
+      response_content_chars: null,
+      thought_chars: null,
+      utterance_cleaned_chars: null,
     },
     classification: {
       l0_infra: { result: "pass", reasons: [] },
@@ -190,6 +216,11 @@ export function summarizeRun(
     interruptionEvalSuccessCount: 0,
     interruptionEvalFailureCount: 0,
     interruptionEvalWithRepresentativeCount: 0,
+    historyCharsAcc: newSizeAcc(),
+    userPromptCharsAcc: newSizeAcc(),
+    contentCharsAcc: newSizeAcc(),
+    thoughtCharsAcc: newSizeAcc(),
+    cleanedUtteranceCharsAcc: newSizeAcc(),
   };
 
   // ── Single-pass accumulation ──────────────────────────────────────────────
@@ -289,6 +320,14 @@ export function summarizeRun(
         // Per-agent
         const agentStats = ensureAgent(summary.api.by_agent, ev.agent);
         agentStats.started++;
+
+        // Size tracking: prompt input sizes
+        if (typeof ev.history_chars === "number") {
+          pushSize(acc.historyCharsAcc, ev.history_chars);
+        }
+        if (typeof ev.user_prompt_chars === "number") {
+          pushSize(acc.userPromptCharsAcc, ev.user_prompt_chars);
+        }
         break;
       }
 
@@ -325,6 +364,11 @@ export function summarizeRun(
           // Finish reason
           if (ev.finish_reason) {
             inc(summary.api.finish_reasons, ev.finish_reason);
+          }
+
+          // Size tracking: response size
+          if (typeof ev.content_chars === "number") {
+            pushSize(acc.contentCharsAcc, ev.content_chars);
           }
         } else {
           // status === "error"
@@ -424,10 +468,13 @@ export function summarizeRun(
         if (ev.speaker_prefix_stripped) summary.filtering.speaker_prefix_stripped_count++;
         if (ev.action_stripped) summary.filtering.action_stripped_count++;
         if (ev.silence_by_length) summary.filtering.silence_by_length_count++;
+        if (ev.truncated_by_max_length) summary.filtering.truncated_by_max_length_count++;
         if (ev.silence_token_detected) summary.filtering.silence_token_detected_count++;
         if (ev.cleaned_utterance === null) {
           summary.filtering.cleaned_to_null_count++;
           acc.cleanedToNullCount++;
+        } else if (typeof ev.cleaned_utterance === "string") {
+          pushSize(acc.cleanedUtteranceCharsAcc, ev.cleaned_utterance.length);
         }
         break;
       }
@@ -493,6 +540,9 @@ export function summarizeRun(
 
       case "thought_update": {
         summary.counts.thought_updates++;
+        if (typeof ev.thought === "string") {
+          pushSize(acc.thoughtCharsAcc, ev.thought.length);
+        }
         break;
       }
 
@@ -561,6 +611,15 @@ export function summarizeRun(
       agentStats.max_duration_ms = Math.max(...durations);
     }
   }
+
+  // Compute size stats
+  summary.sizes = {
+    prompt_history_chars: finalizeSizeStats(acc.historyCharsAcc),
+    prompt_user_chars: finalizeSizeStats(acc.userPromptCharsAcc),
+    response_content_chars: finalizeSizeStats(acc.contentCharsAcc),
+    thought_chars: finalizeSizeStats(acc.thoughtCharsAcc),
+    utterance_cleaned_chars: finalizeSizeStats(acc.cleanedUtteranceCharsAcc),
+  };
 
   // ── Context consistency warnings ───────────────────────────────────────────
 

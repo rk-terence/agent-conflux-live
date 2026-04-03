@@ -44,7 +44,7 @@ export function buildReactionPrompt(agent: AgentState, session: SessionState): P
   return {
     systemPrompt,
     userPrompt: assembleUserPrompt(history, directive),
-    maxTokens: 150,
+    maxTokens: 300,
     history,
     directive,
     historyChars: history.length,
@@ -64,7 +64,7 @@ export function buildNegotiationPrompt(
   return {
     systemPrompt,
     userPrompt: assembleUserPrompt(history, directive),
-    maxTokens: 50,
+    maxTokens: 200,
     history,
     directive,
     historyChars: history.length,
@@ -84,7 +84,7 @@ export function buildVotingPrompt(
   return {
     systemPrompt,
     userPrompt: assembleUserPrompt(history, directive),
-    maxTokens: 50,
+    maxTokens: 150,
     history,
     directive,
     historyChars: history.length,
@@ -108,7 +108,7 @@ export function buildJudgePrompt(
   return {
     systemPrompt,
     userPrompt: assembleUserPrompt(history, directive),
-    maxTokens: 50,
+    maxTokens: 200,
     history,
     directive,
     historyChars: history.length,
@@ -132,7 +132,7 @@ export function buildDefensePrompt(
   return {
     systemPrompt,
     userPrompt: assembleUserPrompt(history, directive),
-    maxTokens: 50,
+    maxTokens: 150,
     history,
     directive,
     historyChars: history.length,

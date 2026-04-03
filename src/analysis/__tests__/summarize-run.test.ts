@@ -1,7 +1,14 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { readLogText } from "../read-log.js";
 import { summarizeRun } from "../summarize-run.js";
-import { buildCleanRun, buildRetryRun, buildInfraFailRun, resetCallSeq } from "./fixtures.js";
+import {
+  buildCleanRun,
+  buildRetryRun,
+  buildInfraFailRun,
+  buildMechanicsFailRun,
+  buildSizeVariedRun,
+  resetCallSeq,
+} from "./fixtures.js";
 
 function summarize(lines: string[]) {
   const text = lines.join("\n");
@@ -162,7 +169,7 @@ describe("summarizeRun", () => {
     expect(s.source.log_path).toBe("test.ndjson");
     expect(s.source.run_id).toBeTruthy();
     expect(s.source.log_schema_version).toBe(1);
-    expect(s.schema_version).toBe(1);
+    expect(s.schema_version).toBe(2);
   });
 
   it("produces no warnings on clean run", () => {
@@ -173,6 +180,76 @@ describe("summarizeRun", () => {
   it("produces no warnings on valid retry run", () => {
     const s = summarize(buildRetryRun());
     expect(s.warnings).toEqual([]);
+  });
+
+  describe("sizes section", () => {
+    it("computes uniform size stats on a clean run", () => {
+      const s = summarize(buildCleanRun({ turns: 3, silenceTurns: 0 }));
+
+      // 9 API calls (3 agents × 3 turns), all with history_chars=200, user_prompt_chars=300, content_chars=100
+      expect(s.sizes.prompt_history_chars).toEqual({ min: 200, max: 200, avg: 200, count: 9 });
+      expect(s.sizes.prompt_user_chars).toEqual({ min: 300, max: 300, avg: 300, count: 9 });
+      expect(s.sizes.response_content_chars).toEqual({ min: 100, max: 100, avg: 100, count: 9 });
+
+      // 3 thought_updates, all "I am thinking" (13 chars)
+      expect(s.sizes.thought_chars).toEqual({ min: 13, max: 13, avg: 13, count: 3 });
+
+      // 9 utterance_filter_results, all "hello world" (11 chars)
+      expect(s.sizes.utterance_cleaned_chars).toEqual({ min: 11, max: 11, avg: 11, count: 9 });
+    });
+
+    it("computes min/max/avg across varied sizes", () => {
+      const s = summarize(buildSizeVariedRun());
+
+      // history_chars: 100, 500, 2000
+      expect(s.sizes.prompt_history_chars!.min).toBe(100);
+      expect(s.sizes.prompt_history_chars!.max).toBe(2000);
+      expect(s.sizes.prompt_history_chars!.avg).toBe(Math.round((100 + 500 + 2000) / 3));
+      expect(s.sizes.prompt_history_chars!.count).toBe(3);
+
+      // user_prompt_chars: 150, 600, 2400
+      expect(s.sizes.prompt_user_chars!.min).toBe(150);
+      expect(s.sizes.prompt_user_chars!.max).toBe(2400);
+      expect(s.sizes.prompt_user_chars!.avg).toBe(Math.round((150 + 600 + 2400) / 3));
+
+      // content_chars: 40, 150, 500
+      expect(s.sizes.response_content_chars!.min).toBe(40);
+      expect(s.sizes.response_content_chars!.max).toBe(500);
+      expect(s.sizes.response_content_chars!.avg).toBe(Math.round((40 + 150 + 500) / 3));
+
+      // thought lengths: "ok" (2), "I need to think about this carefully" (36), "x"×100 (100)
+      expect(s.sizes.thought_chars!.min).toBe(2);
+      expect(s.sizes.thought_chars!.max).toBe(100);
+      expect(s.sizes.thought_chars!.avg).toBe(Math.round((2 + 36 + 100) / 3));
+
+      // cleaned_utterance lengths: "hi" (2), "hello there friend" (18), "this is a much longer utterance for testing" (43)
+      expect(s.sizes.utterance_cleaned_chars!.min).toBe(2);
+      expect(s.sizes.utterance_cleaned_chars!.max).toBe(43);
+      expect(s.sizes.utterance_cleaned_chars!.avg).toBe(Math.round((2 + 18 + 43) / 3));
+    });
+
+    it("excludes null cleaned_utterances from utterance stats", () => {
+      const s = summarize(buildMechanicsFailRun("high_cleaned_to_null_rate"));
+      // 3 out of 4 cleaned to null, only 1 non-null
+      expect(s.sizes.utterance_cleaned_chars!.count).toBe(1);
+    });
+
+    it("returns null for size stats when no data points exist", () => {
+      const s = summarize([]);
+      expect(s.sizes.prompt_history_chars).toBeNull();
+      expect(s.sizes.prompt_user_chars).toBeNull();
+      expect(s.sizes.response_content_chars).toBeNull();
+      expect(s.sizes.thought_chars).toBeNull();
+      expect(s.sizes.utterance_cleaned_chars).toBeNull();
+    });
+
+    it("excludes failed API calls from response_content_chars", () => {
+      const s = summarize(buildInfraFailRun("auth_error"));
+      // Failed calls don't have content_chars
+      expect(s.sizes.response_content_chars).toBeNull();
+      // But prompt sizes are still collected from api_call_started
+      expect(s.sizes.prompt_history_chars).not.toBeNull();
+    });
   });
 
   it("emits retry_context_mismatch warning when retry changes agent", () => {

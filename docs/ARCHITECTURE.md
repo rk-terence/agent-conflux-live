@@ -327,7 +327,7 @@ All state mutations go through helper functions in `session.ts` and `agent-state
 - `resetSilenceStreak(session)` — reset silenceBackoffStep and silenceAccumulated to 0
 - `recordThought(session, turn, agent, mode, thought, observer?)` — append to `thoughtLog`, call `updateThought(agent, thought)`, and call `observer?.onThoughtUpdate(agent, thought)` if thought is non-null
 - `requestStop(session)` — set `session.stopRequested = true`; the loop ends cleanly after the current turn
-- `updateThought(agent, thought)` — if string, replace; if null, keep
+- `updateThought(agent, thought)` — if string, replace (capped at 200 chars); if null, keep
 - `recordCollisionLoss(agent)` — increment consecutiveCollisionLosses
 - `resetCollisionLosses(agent)` — set to 0
 - `updateCollisionStreak(session, colliderNames: string[])` — increment `collisionStreak`; if streak was 0 (first collision), **seed** `collisionStreakColliders` with `colliderNames`; otherwise **intersect** with `colliderNames`
@@ -652,7 +652,7 @@ Every API call produces a `PromptSet { systemPrompt, userPrompt, maxTokens }`.
 
 - `systemPrompt` → system message
 - `userPrompt` → user message = projectedHistory + `"\n\n"` + turnDirective (history omitted if empty)
-- `maxTokens` → per mode (reaction: 150, negotiation: 50, voting: 50, judge: 50, defense: 50). If `agent.config.thinkingModel` is true, the provider adapter multiplies the value by 10 to compensate for reasoning token overhead.
+- `maxTokens` → per mode (reaction: 300, negotiation: 200, voting: 150, judge: 200, defense: 150). If `agent.config.thinkingModel` is true, the provider adapter multiplies the value by 10 to compensate for reasoning token overhead.
 
 ## Prompt Builder (`prompt-builder.ts`)
 
@@ -817,7 +817,7 @@ Uses regex: `@{exactName}(?=\W|$)` where `exactName` is the agent's configured n
 
 `cleanUtterance(text: string, agentNames: string[]): CleanUtteranceResult`
 
-Returns `{ text: string | null, historyHallucination: boolean, speakerPrefixStripped: boolean, actionStripped: boolean, silenceByLength: boolean }`. The boolean flags indicate which cleaning steps fired, enabling structured logging of filtering decisions.
+Returns `{ text: string | null, historyHallucination: boolean, speakerPrefixStripped: boolean, actionStripped: boolean, silenceByLength: boolean, truncatedByMaxLength: boolean }`. The boolean flags indicate which cleaning steps fired, enabling structured logging of filtering decisions.
 
 Pipeline (applied in order; if any step produces null, return null):
 
@@ -833,6 +833,7 @@ Pipeline (applied in order; if any step produces null, return null):
 3. **Strip parenthetical actions**: remove `（...）` and `(...)` patterns
 4. **Trim** whitespace
 5. **Minimum length**: if result length < 4 characters → return null
+6. **Maximum length**: if result length > 200 characters → truncate at last sentence boundary within cap (sentence-ending punctuation: `。！？!?.`). If no boundary exists, return null.
 
 ## Per-Mode Normalization
 

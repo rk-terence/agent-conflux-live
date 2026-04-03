@@ -211,6 +211,7 @@ export interface ReactionResultWithMeta extends ReactionResult {
     speakerPrefixStripped: boolean;
     actionStripped: boolean;
     silenceByLength: boolean;
+    truncatedByMaxLength: boolean;
     silenceTokenDetected: boolean;
     originalUtterance: string | null;
   } | null;

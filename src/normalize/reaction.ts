@@ -55,7 +55,7 @@ export function normalizeReaction(raw: string, agentNames: string[]): ReactionRe
     return {
       utterance: null, insistence, thought,
       _normMeta: { rawKind, jsonExtracted, fallbackPath, truncationSuspected, thoughtType },
-      _cleanMeta: { historyHallucination: false, speakerPrefixStripped: false, actionStripped: false, silenceByLength: false, silenceTokenDetected, originalUtterance: utterance },
+      _cleanMeta: { historyHallucination: false, speakerPrefixStripped: false, actionStripped: false, silenceByLength: false, truncatedByMaxLength: false, silenceTokenDetected, originalUtterance: utterance },
     };
   }
 
@@ -66,6 +66,7 @@ export function normalizeReaction(raw: string, agentNames: string[]): ReactionRe
     speakerPrefixStripped: cleaned.speakerPrefixStripped,
     actionStripped: cleaned.actionStripped,
     silenceByLength: cleaned.silenceByLength,
+    truncatedByMaxLength: cleaned.truncatedByMaxLength,
     silenceTokenDetected: false,
     originalUtterance: utterance!,
   };

@@ -290,6 +290,7 @@ function createObserver(logger: FileLogger): SessionObserver {
         speaker_prefix_stripped: info.speakerPrefixStripped,
         action_stripped: info.actionStripped,
         silence_by_length: info.silenceByLength,
+        truncated_by_max_length: info.truncatedByMaxLength,
         silence_token_detected: info.silenceTokenDetected,
         dedup_dropped: info.dedupDropped,
       });

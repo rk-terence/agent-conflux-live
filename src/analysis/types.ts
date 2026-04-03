@@ -20,9 +20,24 @@ export const THRESHOLDS = {
 
 // ── Summary Schema Version ──────────────────────────────────────────────────
 
-export const SUMMARY_SCHEMA_VERSION = 1;
+export const SUMMARY_SCHEMA_VERSION = 2;
 
 // ── Output Types ────────────────────────────────────────────────────────────
+
+export interface SizeStats {
+  min: number;
+  max: number;
+  avg: number;
+  count: number;
+}
+
+export interface SizesSection {
+  prompt_history_chars: SizeStats | null;
+  prompt_user_chars: SizeStats | null;
+  response_content_chars: SizeStats | null;
+  thought_chars: SizeStats | null;
+  utterance_cleaned_chars: SizeStats | null;
+}
 
 export interface RunSummary {
   schema_version: number;
@@ -49,6 +64,7 @@ export interface RunSummary {
   normalization: NormalizationStats;
   filtering: FilteringStats;
   mechanics: MechanicsStats;
+  sizes: SizesSection;
   classification: Classification;
   eligible_for_l2: boolean;
   warnings: string[];
@@ -123,6 +139,7 @@ export interface FilteringStats {
   speaker_prefix_stripped_count: number;
   action_stripped_count: number;
   silence_by_length_count: number;
+  truncated_by_max_length_count: number;
   silence_token_detected_count: number;
   cleaned_to_null_count: number;
 }
@@ -212,4 +229,18 @@ export interface AccumulatorState {
   interruptionEvalFailureCount: number;
   /** Evaluations where a representative was selected (someone actually tried to interrupt) */
   interruptionEvalWithRepresentativeCount: number;
+
+  // Size tracking — streaming accumulators (constant memory)
+  historyCharsAcc: SizeAccumulator;
+  userPromptCharsAcc: SizeAccumulator;
+  contentCharsAcc: SizeAccumulator;
+  thoughtCharsAcc: SizeAccumulator;
+  cleanedUtteranceCharsAcc: SizeAccumulator;
+}
+
+export interface SizeAccumulator {
+  min: number;
+  max: number;
+  sum: number;
+  count: number;
 }

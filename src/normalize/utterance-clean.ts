@@ -5,12 +5,17 @@
  * The result includes boolean flags for each cleaning step that fired,
  * enabling structured logging of utterance filtering decisions.
  */
+/** Max characters for a cleaned utterance. Anything longer is truncated at
+ *  the last sentence boundary within the limit (or silenced if no boundary). */
+export const MAX_UTTERANCE_CHARS = 200;
+
 export interface CleanUtteranceResult {
   text: string | null;
   historyHallucination: boolean;
   speakerPrefixStripped: boolean;
   actionStripped: boolean;
   silenceByLength: boolean;
+  truncatedByMaxLength: boolean;
 }
 
 export function cleanUtterance(
@@ -22,7 +27,7 @@ export function cleanUtterance(
 
   // 1. History hallucination check: starts with - [Ns] or [Ns]
   if (/^-?\s*\[[\d.]+s\]/.test(text)) {
-    return { text: null, historyHallucination: true, speakerPrefixStripped: false, actionStripped: false, silenceByLength: false };
+    return { text: null, historyHallucination: true, speakerPrefixStripped: false, actionStripped: false, silenceByLength: false, truncatedByMaxLength: false };
   }
 
   let cleaned = text;
@@ -69,7 +74,7 @@ export function cleanUtterance(
 
   // 2b. Re-check history hallucination after prefix stripping
   if (/^-?\s*\[[\d.]+s\]/.test(cleaned)) {
-    return { text: null, historyHallucination: true, speakerPrefixStripped, actionStripped: false, silenceByLength: false };
+    return { text: null, historyHallucination: true, speakerPrefixStripped, actionStripped: false, silenceByLength: false, truncatedByMaxLength: false };
   }
 
   // 3. Strip parenthetical actions: （...） and (...)
@@ -85,10 +90,36 @@ export function cleanUtterance(
 
   // 5. Minimum length: < 4 characters → silence
   if (cleaned.length < 4) {
-    return { text: null, historyHallucination: false, speakerPrefixStripped, actionStripped, silenceByLength: true };
+    return { text: null, historyHallucination: false, speakerPrefixStripped, actionStripped, silenceByLength: true, truncatedByMaxLength: false };
   }
 
-  return { text: cleaned, historyHallucination: false, speakerPrefixStripped, actionStripped, silenceByLength: false };
+  // 6. Max-length cap: truncate at the last sentence boundary within the limit
+  let truncatedByMaxLength = false;
+  if (cleaned.length > MAX_UTTERANCE_CHARS) {
+    const sentenceEnd = /[。！？!?.]/g;
+    let lastBoundary = -1;
+    let m: RegExpExecArray | null;
+    while ((m = sentenceEnd.exec(cleaned)) !== null) {
+      if (m.index < MAX_UTTERANCE_CHARS) {
+        lastBoundary = m.index;
+      } else {
+        break;
+      }
+    }
+    if (lastBoundary >= 0) {
+      cleaned = cleaned.slice(0, lastBoundary + 1).trim();
+      truncatedByMaxLength = true;
+      // Re-check minimum length after truncation
+      if (cleaned.length < 4) {
+        return { text: null, historyHallucination: false, speakerPrefixStripped, actionStripped, silenceByLength: true, truncatedByMaxLength: true };
+      }
+    } else {
+      // No sentence boundary within cap — silence the whole thing
+      return { text: null, historyHallucination: false, speakerPrefixStripped, actionStripped, silenceByLength: false, truncatedByMaxLength: true };
+    }
+  }
+
+  return { text: cleaned, historyHallucination: false, speakerPrefixStripped, actionStripped, silenceByLength: false, truncatedByMaxLength };
 }
 
 function escapeRegex(str: string): string {
