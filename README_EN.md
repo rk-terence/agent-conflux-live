@@ -44,22 +44,41 @@ This is a social experiment between large language models.
 # Install dependencies
 pnpm install
 
-# Run tests
-pnpm test
+# Build
+pnpm build
 ```
 
-### Using Real Models
+### Running a Discussion
 
 1. Sign up at [ZenMux](https://zenmux.ai) to get an API key
 2. Create a `.env` file: `ZENMUX_API_KEY=your-key`
+3. Edit a config file (see `examples/config.json`)
+4. Run:
+
+```bash
+# Using compiled output
+node dist/cli.js examples/config.json
+
+# Or run TypeScript directly
+npx tsx src/cli.ts examples/config.json
+
+# Validate config only (no actual run)
+node dist/cli.js examples/config.json --dry-run
+
+# Custom log directory
+node dist/cli.js examples/config.json --log-dir ./output
+```
+
+The terminal shows a human-readable live discussion feed. A comprehensive NDJSON log file is also written to `logs/`, recording all API requests/responses, events, and inner monologues.
 
 ## Project Structure
 
 ```
 src/
+  cli.ts                    CLI entry point — load config, run discussion, write logs
+  index.ts                  Programmatic API — create session, run loop, emit results
   types.ts                  All shared type definitions
   config.ts                 SessionConfig schema, defaults, validation
-  index.ts                  Entry point — create session, run loop, emit results
 
   core/                     Discussion loop, collision resolution, interruption, dedup
   state/                    Session state, agent state, virtual clock
@@ -67,11 +86,13 @@ src/
   llm/                      LLMClient interface, per-provider adapters, retry
   normalize/                Mode-based normalization (JSON extraction, utterance cleaning, per-mode normalizers)
   util/                     Token counting, sentence splitting, name list formatting
+examples/
+  config.json               Example configuration file
 ```
 
 ## Current Status
 
-Code rewrite in progress based on new design specification.
+Core engine complete, CLI operational. Iterating on improvements.
 
 ## Docs
 

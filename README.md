@@ -44,22 +44,41 @@
 # 安装依赖
 pnpm install
 
-# 运行测试
-pnpm test
+# 构建
+pnpm build
 ```
 
-### 使用真实模型
+### 运行讨论
 
 1. 注册 [ZenMux](https://zenmux.ai) 获取 API key
 2. 创建 `.env` 文件：`ZENMUX_API_KEY=your-key`
+3. 编辑配置文件（参考 `examples/config.json`）
+4. 运行：
+
+```bash
+# 使用编译产物
+node dist/cli.js examples/config.json
+
+# 或直接运行 TypeScript
+npx tsx src/cli.ts examples/config.json
+
+# 验证配置（不实际运行）
+node dist/cli.js examples/config.json --dry-run
+
+# 指定日志目录
+node dist/cli.js examples/config.json --log-dir ./output
+```
+
+运行时，终端会输出人类可读的实时讨论过程；同时在 `logs/` 目录下生成 NDJSON 格式的完整日志文件，记录所有 API 请求/响应、事件和内心独白。
 
 ## 项目结构
 
 ```
 src/
+  cli.ts                    CLI 入口：读取配置文件、运行讨论、输出日志
+  index.ts                  编程接口：创建会话、运行循环、输出结果
   types.ts                  所有共享类型定义
   config.ts                 SessionConfig 配置、默认值、校验
-  index.ts                  入口：创建会话、运行循环、输出结果
 
   core/                     主迭代循环、碰撞解决、打断、去重
   state/                    会话状态、agent 状态、虚拟时间
@@ -67,11 +86,13 @@ src/
   llm/                      LLMClient 接口、各 provider 适配器、重试
   normalize/                按模式分发的归一化（JSON 提取、发言清洗、各模式归一化）
   util/                     Token 计数、句子分割、名称列表格式化
+examples/
+  config.json               示例配置文件
 ```
 
 ## 当前状态
 
-正在基于全新的设计规范进行代码重写。
+核心引擎已完成，CLI 可用。正在迭代改进中。
 
 ## 文档
 

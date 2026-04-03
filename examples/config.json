@@ -1,0 +1,23 @@
+{
+  "topic": "一起完成一首七言绝句",
+  "agents": [
+    {
+      "name": "DeepSeek",
+      "provider": "zenmux",
+      "model": "deepseek/deepseek-chat"
+    },
+    {
+      "name": "Gemini",
+      "provider": "zenmux",
+      "model": "google/gemini-2.5-flash",
+      "thinkingModel": true
+    },
+    {
+      "name": "Qwen",
+      "provider": "zenmux",
+      "model": "qwen/qwen3-vl-plus"
+    }
+  ],
+  "maxDuration": 300,
+  "silenceTimeout": 60
+}

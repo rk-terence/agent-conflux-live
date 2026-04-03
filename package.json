@@ -3,17 +3,22 @@
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "agent-conflux": "dist/cli.js"
+  },
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "cli": "node dist/cli.js"
   },
   "dependencies": {
     "openai": "^4.86.2"
   },
   "devDependencies": {
     "@types/node": "^22.15.2",
+    "tsx": "^4.21.0",
     "typescript": "^5.8.3",
     "vitest": "^3.1.1"
   }

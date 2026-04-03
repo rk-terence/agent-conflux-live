@@ -3,6 +3,7 @@ export { buildConfig } from "./config.js";
 export type { SessionConfigInput } from "./config.js";
 export { createSession, requestStop } from "./state/session.js";
 export { createClient } from "./llm/client.js";
+export type { ApiCallInfo, ApiCallHook } from "./llm/client.js";
 export { runDiscussion } from "./core/discussion-loop.js";
 
 // Re-export all types

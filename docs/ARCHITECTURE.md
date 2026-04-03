@@ -17,9 +17,10 @@ Implementation architecture for AI Roundtable. Source of truth for module bounda
 
 ```
 src/
+  cli.ts                    CLI entry point — load config, run discussion, write logs
+  index.ts                  Programmatic API — create session, run loop, emit results
   types.ts                  All shared type definitions
   config.ts                 SessionConfig schema, defaults, validation
-  index.ts                  Entry point — create session, run loop, emit results
 
   core/
     discussion-loop.ts      Main iteration loop (orchestrator)
@@ -913,7 +914,11 @@ Each provider adapter implements `LLMClient` and handles API-specific details:
 
 A factory function creates the appropriate client:
 
-`createClient(config: AgentConfig): LLMClient`
+`createClient(config: AgentConfig, onApiCall?: ApiCallHook): LLMClient`
+
+### Instrumentation Hook
+
+The optional `ApiCallHook` callback fires on every API call (success or failure), receiving an `ApiCallInfo` object with the full request, raw response (including `reasoning_content`/`reasoning` for thinking models, token usage), and timing. The hook is best-effort: exceptions are silently caught so telemetry cannot alter request semantics or cause spurious retries.
 
 ### Retry Wrapper (`retry.ts`)
 
