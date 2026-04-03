@@ -11,10 +11,10 @@ references: [LOGGING.md]
 pnpm build
 
 # Summarize a log file
-node dist/analysis/cli.js --input logs/discussion-xxx.ndjson
+node dist/analysis/cli.js --input runs/poetry-2min/discussion-xxx.ndjson
 
 # Specify output path
-node dist/analysis/cli.js --input logs/run.ndjson --output summaries/run.summary.json
+node dist/analysis/cli.js --input runs/my-run/discussion.ndjson --output out/summary.json
 ```
 
 Default output: `<input-path>.summary.json` (replaces `.ndjson` extension).

@@ -66,17 +66,17 @@ npx tsx src/cli.ts examples/config.json
 node dist/cli.js examples/config.json --dry-run
 
 # 指定日志目录
-node dist/cli.js examples/config.json --log-dir ./output
+node dist/cli.js runs/poetry-2min/config.json --log-dir ./output
 ```
 
-运行时，终端会输出人类可读的实时讨论过程；同时在 `logs/` 目录下生成 NDJSON 格式的完整日志文件，每个事件携带 `run_id` 和 `schema_version`，记录 API 调用生命周期、归一化路径、发言清洗决策、碰撞逐轮过程、打断评估细节和内心独白。日志格式详见 [日志事件规范](./docs/LOGGING.md)。
+运行时，终端会输出人类可读的实时讨论过程；同时在运行配置所在目录（如 `runs/poetry-2min/`）下生成 NDJSON 格式的完整日志文件，每个事件携带 `run_id` 和 `schema_version`，记录 API 调用生命周期、归一化路径、发言清洗决策、碰撞逐轮过程、打断评估细节和内心独白。日志格式详见 [日志事件规范](./docs/LOGGING.md)。
 
 ### 离线日志分析
 
 运行结束后，可以对日志进行离线分析，生成结构化摘要和 L0/L1 分类：
 
 ```bash
-node dist/analysis/cli.js --input logs/discussion-xxx.ndjson
+node dist/analysis/cli.js --input runs/poetry-2min/discussion-xxx.ndjson
 ```
 
 输出 `run-summary.json`，包含事件计数、API 统计、归一化/过滤/碰撞/打断聚合，以及：

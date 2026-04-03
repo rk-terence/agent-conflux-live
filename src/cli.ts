@@ -62,12 +62,12 @@ function usage(): never {
     `Usage: agent-conflux <config.json> [options]
 
 Options:
-  --log-dir <dir>   Directory for log files (default: ./logs)
+  --log-dir <dir>   Directory for log files (default: config file's directory)
   --dry-run         Validate config and exit without running
 
 Examples:
-  agent-conflux examples/config.json
-  agent-conflux my-debate.json --log-dir ./output
+  agent-conflux runs/my-run/config.json
+  agent-conflux examples/config.json --log-dir ./output
 `,
   );
   process.exit(1);
@@ -82,7 +82,7 @@ interface CliArgs {
 function parseArgs(argv: string[]): CliArgs {
   const args = argv.slice(2);
   let configPath = "";
-  let logDir = "./logs";
+  let logDir = "";
   let dryRun = false;
 
   for (let i = 0; i < args.length; i++) {
@@ -105,7 +105,10 @@ function parseArgs(argv: string[]): CliArgs {
   }
 
   if (!configPath) usage();
-  return { configPath: resolve(configPath), logDir: resolve(logDir), dryRun };
+  const resolvedConfig = resolve(configPath);
+  // Default log dir: same directory as the config file (supports runs/<name>/ layout)
+  if (!logDir) logDir = dirname(resolvedConfig);
+  return { configPath: resolvedConfig, logDir: resolve(logDir), dryRun };
 }
 
 // ── NDJSON File Logger ───────────────────────────────────────────────────────

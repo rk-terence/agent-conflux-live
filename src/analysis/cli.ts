@@ -17,8 +17,8 @@ Options:
   --help            Show this help message
 
 Examples:
-  node dist/analysis/cli.js --input logs/discussion-xxx.ndjson
-  node dist/analysis/cli.js --input logs/run.ndjson --output summaries/run.summary.json
+  node dist/analysis/cli.js --input runs/poetry-2min/discussion-xxx.ndjson
+  node dist/analysis/cli.js --input runs/my-run/discussion.ndjson --output out/summary.json
 `,
   );
   process.exit(1);
