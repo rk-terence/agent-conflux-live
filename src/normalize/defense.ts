@@ -1,6 +1,6 @@
 import type { DefenseResultWithMeta } from "../types.js";
 import type { NormalizeMeta } from "../log-types.js";
-import { extractJSON } from "./json-extract.js";
+import { extractJSON, classifyThoughtType } from "./json-extract.js";
 
 export function normalizeDefense(raw: string): DefenseResultWithMeta {
   const json = extractJSON(raw);
@@ -17,9 +17,7 @@ export function normalizeDefense(raw: string): DefenseResultWithMeta {
   // Note: "yield" is a reserved word in JS but works as property access
   const yieldValue = typeof json.yield === "boolean" ? json.yield : true;
 
-  const thoughtType: NormalizeMeta["thoughtType"] = thought === null
-    ? ("thought" in json ? "null" : "missing")
-    : "string";
+  const thoughtType = classifyThoughtType(json, thought);
 
   return {
     yield: yieldValue, thought,

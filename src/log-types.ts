@@ -9,13 +9,14 @@ export interface NormalizeMeta {
   jsonExtracted: boolean;
   fallbackPath: "none" | "raw_text" | "keyword" | "default";
   truncationSuspected: boolean;
-  thoughtType: "string" | "null" | "missing";
+  thoughtType: "string" | "null" | "missing" | "object" | "other";
 }
 
 // ── Observer payload types ──
 
 export interface NormalizeResultInfo {
   callId: string;
+  turn: number;
   agent: string;
   mode: PromptMode;
   rawKind: NormalizeMeta["rawKind"];
@@ -28,7 +29,9 @@ export interface NormalizeResultInfo {
 
 export interface UtteranceFilterInfo {
   callId: string;
+  turn: number;
   agent: string;
+  mode: "reaction";
   originalUtterance: string;
   cleanedUtterance: string | null;
   historyHallucination: boolean;

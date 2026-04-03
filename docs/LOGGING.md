@@ -99,6 +99,7 @@ First event in the log.
 | content_chars | number? | Response content length (success only) |
 | content | string? | Raw response content (success only) |
 | raw_response | object? | Full provider response object |
+| error_code | string? | Structured error code from provider SDK (error only) |
 | error_message | string? | Error message (error only) |
 
 ### normalize_result
@@ -106,13 +107,14 @@ First event in the log.
 | Field | Type | Description |
 |-------|------|-------------|
 | call_id | string | UUID of the API call this normalizes |
+| turn | number | Current turn |
 | agent | string | Agent name |
 | mode | PromptMode | Prompt mode |
 | raw_kind | "empty" \| "json" \| "plain_text" | What the raw response looked like |
 | json_extracted | boolean | Whether JSON was successfully extracted |
 | fallback_path | "none" \| "raw_text" \| "keyword" \| "default" | Which fallback was used |
 | truncation_suspected | boolean | Raw has `{` but no `}` |
-| thought_type | "string" \| "null" \| "missing" | Type of the thought field |
+| thought_type | "string" \| "null" \| "missing" \| "object" \| "other" | Type of the raw thought field in JSON |
 | payload | object | Normalized result fields (mode-specific) |
 
 Payload fields by mode:
@@ -129,7 +131,9 @@ Emitted for every reaction that produced a non-null utterance (before or after c
 | Field | Type | Description |
 |-------|------|-------------|
 | call_id | string | UUID of the reaction API call |
+| turn | number | Current turn |
 | agent | string | Agent name |
+| mode | "reaction" | Always "reaction" |
 | original_utterance | string | Utterance before cleaning |
 | cleaned_utterance | string? | Utterance after cleaning (null if silenced) |
 | history_hallucination | boolean | Cleaned as history hallucination |

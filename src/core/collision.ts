@@ -112,6 +112,7 @@ export async function resolveCollision(
           // Emit normalize_result
           observer?.onNormalizeResult?.({
             callId,
+            turn: session.currentTurn,
             agent: candidate.name,
             mode: "negotiation",
             rawKind: withMeta._normMeta.rawKind,
@@ -242,6 +243,7 @@ export async function resolveCollision(
           // Emit normalize_result
           observer?.onNormalizeResult?.({
             callId,
+            turn: session.currentTurn,
             agent: voter.name,
             mode: "voting",
             rawKind: withMeta._normMeta.rawKind,

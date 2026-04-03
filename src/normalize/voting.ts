@@ -1,6 +1,6 @@
 import type { VotingResultWithMeta } from "../types.js";
 import type { NormalizeMeta } from "../log-types.js";
-import { extractJSON } from "./json-extract.js";
+import { extractJSON, classifyThoughtType } from "./json-extract.js";
 
 export function normalizeVoting(raw: string, candidates: string[]): VotingResultWithMeta {
   let voteText: string | null = null;
@@ -23,9 +23,7 @@ export function normalizeVoting(raw: string, candidates: string[]): VotingResult
     fallbackPath = "raw_text";
   }
 
-  const thoughtType: NormalizeMeta["thoughtType"] = thought === null
-    ? (json && "thought" in json ? "null" : "missing")
-    : "string";
+  const thoughtType = classifyThoughtType(json, thought);
 
   // 4. Match against candidate names
   const vote = voteText !== null && candidates.includes(voteText) ? voteText : null;

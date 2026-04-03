@@ -1,6 +1,6 @@
 import type { InsistenceLevel, NegotiationResultWithMeta } from "../types.js";
 import type { NormalizeMeta } from "../log-types.js";
-import { extractJSON } from "./json-extract.js";
+import { extractJSON, classifyThoughtType } from "./json-extract.js";
 
 const VALID_INSISTENCE = new Set<string>(["low", "mid", "high"]);
 
@@ -13,9 +13,7 @@ export function normalizeNegotiation(raw: string): NegotiationResultWithMeta {
   if (json) {
     // 2. Extract thought regardless of insistence validity
     thought = typeof json.thought === "string" ? json.thought : null;
-    const thoughtType: NormalizeMeta["thoughtType"] = thought === null
-      ? (json && "thought" in json ? "null" : "missing")
-      : "string";
+    const thoughtType = classifyThoughtType(json, thought);
 
     // 3. Validate insistence
     if (VALID_INSISTENCE.has(json.insistence as string)) {
@@ -27,7 +25,7 @@ export function normalizeNegotiation(raw: string): NegotiationResultWithMeta {
     // Fall through to keyword fallback (thought preserved)
   }
 
-  const thoughtType: NormalizeMeta["thoughtType"] = thought === null ? "missing" : "string";
+  const thoughtType = classifyThoughtType(json, thought);
 
   // 4. Keyword fallback on raw text
   const text = raw.toLowerCase();

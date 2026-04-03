@@ -101,6 +101,7 @@ export async function evaluateInterruption(
         // Emit normalize_result
         observer?.onNormalizeResult?.({
           callId,
+          turn: session.currentTurn,
           agent: listener.name,
           mode: "judge",
           rawKind: withMeta._normMeta.rawKind,
@@ -246,6 +247,7 @@ export async function evaluateInterruption(
     // Emit normalize_result
     observer?.onNormalizeResult?.({
       callId: defenseCallId,
+      turn: session.currentTurn,
       agent: speaker.name,
       mode: "defense",
       rawKind: withMeta._normMeta.rawKind,

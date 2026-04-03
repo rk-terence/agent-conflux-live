@@ -1,4 +1,4 @@
-export { extractJSON } from "./json-extract.js";
+export { extractJSON, classifyThoughtType } from "./json-extract.js";
 export { cleanUtterance } from "./utterance-clean.js";
 export type { CleanUtteranceResult } from "./utterance-clean.js";
 export { normalizeReaction } from "./reaction.js";

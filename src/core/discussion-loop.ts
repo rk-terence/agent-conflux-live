@@ -137,6 +137,7 @@ async function runOneTurn(
       // Emit normalize_result
       observer?.onNormalizeResult?.({
         callId,
+        turn: session.currentTurn,
         agent: agent.name,
         mode: "reaction",
         rawKind: result._normMeta.rawKind,
@@ -166,7 +167,9 @@ async function runOneTurn(
       // Emit utterance_filter_result for every agent that had a non-null utterance
       observer?.onUtteranceFilterResult?.({
         callId,
+        turn: session.currentTurn,
         agent: name,
+        mode: "reaction",
         originalUtterance: meta?._cleanMeta?.originalUtterance ?? result.utterance,
         cleanedUtterance: dup ? null : result.utterance,
         historyHallucination: false,
@@ -184,7 +187,9 @@ async function runOneTurn(
       // Utterance was cleaned to null — emit filter result showing why
       observer?.onUtteranceFilterResult?.({
         callId,
+        turn: session.currentTurn,
         agent: name,
+        mode: "reaction",
         originalUtterance: meta._cleanMeta.originalUtterance ?? "",
         cleanedUtterance: null,
         historyHallucination: meta._cleanMeta.historyHallucination,

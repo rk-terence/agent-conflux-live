@@ -1,6 +1,6 @@
 import type { InsistenceLevel, JudgeResultWithMeta } from "../types.js";
 import type { NormalizeMeta } from "../log-types.js";
-import { extractJSON } from "./json-extract.js";
+import { extractJSON, classifyThoughtType } from "./json-extract.js";
 
 const VALID_INSISTENCE = new Set<string>(["low", "mid", "high"]);
 
@@ -22,9 +22,7 @@ export function normalizeJudge(raw: string): JudgeResultWithMeta {
     : "low";
   const reason = typeof json.reason === "string" ? json.reason : null;
 
-  const thoughtType: NormalizeMeta["thoughtType"] = thought === null
-    ? ("thought" in json ? "null" : "missing")
-    : "string";
+  const thoughtType = classifyThoughtType(json, thought);
 
   return {
     interrupt, urgency, reason, thought,

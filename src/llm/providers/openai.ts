@@ -16,6 +16,7 @@ export interface ApiCallInfo {
   promptTokens?: number;
   completionTokens?: number;
   reasoningTokens?: number;
+  errorCode?: string;       // structured error code from provider SDK (e.g. "rate_limit_exceeded")
 }
 
 export type ApiCallHook = (info: ApiCallInfo) => void;
@@ -38,6 +39,25 @@ function extractErrorMessage(err: unknown, model: string): string {
 function extractHttpStatus(err: unknown): number | undefined {
   if (err && typeof err === "object" && "status" in err && typeof (err as Record<string, unknown>).status === "number") {
     return (err as Record<string, unknown>).status as number;
+  }
+  return undefined;
+}
+
+/** Extract structured error code from OpenAI SDK error if available (e.g. "rate_limit_exceeded", "model_not_found"). */
+function extractErrorCode(err: unknown): string | undefined {
+  if (err && typeof err === "object") {
+    // OpenAI SDK errors have a `code` property
+    if ("code" in err && typeof (err as Record<string, unknown>).code === "string") {
+      return (err as Record<string, unknown>).code as string;
+    }
+    // Some errors have error.error.code nested
+    if ("error" in err) {
+      const inner = (err as Record<string, unknown>).error;
+      if (inner && typeof inner === "object" && "code" in (inner as Record<string, unknown>)) {
+        const code = (inner as Record<string, unknown>).code;
+        if (typeof code === "string") return code;
+      }
+    }
   }
   return undefined;
 }
@@ -112,6 +132,7 @@ export function createOpenAIClient(config: AgentConfig, onApiCall?: ApiCallHook)
           error: errorMsg,
           durationMs: Date.now() - start,
           httpStatus: extractHttpStatus(err),
+          errorCode: extractErrorCode(err),
         });
         // Truncate verbose/HTML error bodies per PROVIDER.md guidance
         throw new Error(errorMsg);

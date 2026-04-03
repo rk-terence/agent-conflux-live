@@ -263,6 +263,7 @@ function createObserver(logger: FileLogger): SessionObserver {
     onNormalizeResult(info: NormalizeResultInfo) {
       logger.log("normalize_result", {
         call_id: info.callId,
+        turn: info.turn,
         agent: info.agent,
         mode: info.mode,
         raw_kind: info.rawKind,
@@ -277,7 +278,9 @@ function createObserver(logger: FileLogger): SessionObserver {
     onUtteranceFilterResult(info: UtteranceFilterInfo) {
       logger.log("utterance_filter_result", {
         call_id: info.callId,
+        turn: info.turn,
         agent: info.agent,
+        mode: info.mode,
         original_utterance: info.originalUtterance,
         cleaned_utterance: info.cleanedUtterance,
         history_hallucination: info.historyHallucination,
@@ -355,6 +358,7 @@ function createApiCallHook(logger: FileLogger): (info: ApiCallInfo) => void {
           status: "error",
           duration_ms: info.durationMs,
           http_status: info.httpStatus,
+          error_code: info.errorCode,
           error_message: info.error,
           raw_response: info.rawResponse,
         });
