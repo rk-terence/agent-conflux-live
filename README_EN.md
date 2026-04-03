@@ -69,7 +69,7 @@ node dist/cli.js examples/config.json --dry-run
 node dist/cli.js examples/config.json --log-dir ./output
 ```
 
-The terminal shows a human-readable live discussion feed. A comprehensive NDJSON log file is also written to `logs/`, recording all API requests/responses, events, and inner monologues.
+The terminal shows a human-readable live discussion feed. A comprehensive NDJSON log file is also written to `logs/`, where every event carries a `run_id` and `schema_version`. The log records API call lifecycle, normalization paths, utterance cleaning decisions, round-by-round collision resolution, interruption evaluation details, and inner monologues. See [Logging Event Schema](./docs/LOGGING.md) for the full format.
 
 ## Project Structure
 
@@ -98,6 +98,7 @@ Core engine complete, CLI operational. Iterating on improvements.
 
 - [Design Specification](./docs/DESIGN.md) — system behavior, semantic constraints, prompt wording, history rendering, normalization rules
 - [System Architecture](./docs/ARCHITECTURE.md) — module boundaries, type definitions, data flow, algorithms
+- [Logging Event Schema](./docs/LOGGING.md) — NDJSON event schema, field definitions, event correlation
 - [Provider Integration Notes](./docs/PROVIDER.md) — API gotchas, model behavior observations
 
 ## License

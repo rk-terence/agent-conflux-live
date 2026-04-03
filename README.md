@@ -69,7 +69,7 @@ node dist/cli.js examples/config.json --dry-run
 node dist/cli.js examples/config.json --log-dir ./output
 ```
 
-运行时，终端会输出人类可读的实时讨论过程；同时在 `logs/` 目录下生成 NDJSON 格式的完整日志文件，记录所有 API 请求/响应、事件和内心独白。
+运行时，终端会输出人类可读的实时讨论过程；同时在 `logs/` 目录下生成 NDJSON 格式的完整日志文件，每个事件携带 `run_id` 和 `schema_version`，记录 API 调用生命周期、归一化路径、发言清洗决策、碰撞逐轮过程、打断评估细节和内心独白。日志格式详见 [日志事件规范](./docs/LOGGING.md)。
 
 ## 项目结构
 
@@ -98,6 +98,7 @@ examples/
 
 - [设计规范](./docs/DESIGN.md) — 系统行为、语义约束、prompt 文案、历史渲染格式、归一化规则
 - [系统架构](./docs/ARCHITECTURE.md) — 模块边界、类型定义、数据流、算法
+- [日志事件规范](./docs/LOGGING.md) — NDJSON 事件 schema、字段定义、事件关联方式
 - [Provider 集成笔记](./docs/PROVIDER.md) — API 踩坑、模型行为观察
 
 ## License
