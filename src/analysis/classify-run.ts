@@ -162,10 +162,10 @@ export function classifyL1(
     );
   }
 
-  // 6. Cleaned-to-null rate
-  const filterCount = summary.counts.utterance_filter_results;
-  if (filterCount > 0) {
-    const cleanedNullRate = summary.filtering.cleaned_to_null_count / filterCount;
+  // 6. Cleaned-to-null rate (pipeline filtering only, excludes silence tokens and dedup)
+  const pipelineFilterCount = summary.filtering.pipeline_filter_count;
+  if (pipelineFilterCount > 0) {
+    const cleanedNullRate = summary.filtering.pipeline_cleaned_to_null_count / pipelineFilterCount;
     if (cleanedNullRate > THRESHOLDS.L1_CLEANED_TO_NULL_RATE) {
       reasons.push(
         `high_clean_to_null_rate: ${cleanedNullRate.toFixed(2)} > ${THRESHOLDS.L1_CLEANED_TO_NULL_RATE}`,

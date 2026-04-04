@@ -803,6 +803,7 @@ export type MechanicsFailType =
   | "speaker_monopoly"
   | "high_dedup_drops"
   | "high_cleaned_to_null_rate"
+  | "pipeline_null_vs_silence_dedup"
   | "interruption_inconsistency";
 
 export function buildMechanicsFailRun(failure: MechanicsFailType): string[] {
@@ -939,6 +940,33 @@ export function buildMechanicsFailRun(failure: MechanicsFailType): string[] {
             agent: "Alice",
             offsetMs: ms,
             cleanedToNull: t <= 3,
+          }),
+        );
+        ms += 10;
+        lines.push(turnComplete(t, ms, t <= 3 ? "silence" : "speech", "Alice"));
+        ms += 10;
+      }
+      break;
+    }
+
+    case "pipeline_null_vs_silence_dedup": {
+      // 4 events: 2 silence-token nulls, 1 dedup null, 1 normal.
+      // pipeline_cleaned_to_null_count = 0, so L1 should pass.
+      for (let t = 1; t <= 4; t++) {
+        lines.push(turnStart(t, ms));
+        ms += 10;
+        const cycle = apiCallCycle({ turn: t, agent: "Alice", mode: "reaction", offsetMs: ms });
+        lines.push(...cycle.lines);
+        ms += 1100;
+        lines.push(
+          utteranceFilter({
+            callId: cycle.callId,
+            turn: t,
+            agent: "Alice",
+            offsetMs: ms,
+            silenceTokenDetected: t <= 2,
+            cleanedToNull: t <= 3,
+            dedupDropped: t === 3,
           }),
         );
         ms += 10;

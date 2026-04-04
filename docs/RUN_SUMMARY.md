@@ -23,7 +23,7 @@ Exit code: `0` if L0 passes, `1` if L0 fails.
 
 # Summary Output Schema
 
-`schema_version: 2`
+`schema_version: 3`
 
 ## source
 
@@ -93,7 +93,9 @@ Total event counts across the run:
 | silence_by_length_count | number | Silenced due to < 4 chars |
 | truncated_by_max_length_count | number | Utterances truncated or silenced by max length cap |
 | silence_token_detected_count | number | Silence token matches |
-| cleaned_to_null_count | number | Utterances cleaned to null (silenced) |
+| cleaned_to_null_count | number | Utterances cleaned to null (all causes) |
+| pipeline_filter_count | number | Filter events excluding silence tokens and dedup drops |
+| pipeline_cleaned_to_null_count | number | Utterances cleaned to null by pipeline filtering only (excludes silence tokens and dedup drops) |
 
 ## mechanics
 
@@ -218,7 +220,7 @@ All thresholds are defined in `src/analysis/types.ts` as `THRESHOLDS`:
 | `high_tier3_tier4_collision_rate` | (tier3 + tier4) / total_collisions > 0.30 |
 | `speaker_monopoly` | One speaker > 60% of speech turns (when >= 8 speech turns) |
 | `high_dedup_drop_count` | dedup_drop_count >= 3 |
-| `high_clean_to_null_rate` | cleaned_to_null / filter_results > 0.25 |
+| `high_clean_to_null_rate` | pipeline_cleaned_to_null / pipeline_filter_count > 0.25 |
 | `interruption_event_inconsistency` | interruption_attempt count != interruption_evaluation count where a representative was selected |
 | `blocked_by_l0` | L0 failed, L1 not evaluated |
 

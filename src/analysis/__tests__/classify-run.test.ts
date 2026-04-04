@@ -206,6 +206,14 @@ describe("L1 classification", () => {
     expect(s.classification.l1_mechanics.reasons[0]).toContain("high_clean_to_null_rate");
   });
 
+  it("passes cleaned_to_null_rate when all nulls are silence-token or dedup", () => {
+    const s = summarize(buildMechanicsFailRun("pipeline_null_vs_silence_dedup"));
+    expect(s.classification.l0_infra.result).toBe("pass");
+    expect(s.filtering.cleaned_to_null_count).toBe(3);
+    expect(s.filtering.pipeline_cleaned_to_null_count).toBe(0);
+    expect(s.classification.l1_mechanics.result).toBe("pass");
+  });
+
   it("does not fail on runs with failed (auto_lose) interruption attempts", () => {
     // A run with both successful and failed interruptions should pass L1
     // as long as interruption_attempt count matches evaluations-with-representative

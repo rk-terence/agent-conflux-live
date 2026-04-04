@@ -86,6 +86,17 @@ describe("summarizeRun", () => {
     expect(s.filtering.dedup_drop_count).toBe(0);
     expect(s.filtering.history_hallucination_count).toBe(0);
     expect(s.filtering.cleaned_to_null_count).toBe(0);
+    expect(s.filtering.pipeline_filter_count).toBe(s.counts.utterance_filter_results);
+    expect(s.filtering.pipeline_cleaned_to_null_count).toBe(0);
+  });
+
+  it("counts pipeline_cleaned_to_null_count excluding silence tokens and dedup", () => {
+    const s = summarize(buildMechanicsFailRun("pipeline_null_vs_silence_dedup"));
+    expect(s.filtering.cleaned_to_null_count).toBe(3);
+    expect(s.filtering.pipeline_filter_count).toBe(1);
+    expect(s.filtering.pipeline_cleaned_to_null_count).toBe(0);
+    expect(s.filtering.silence_token_detected_count).toBe(2);
+    expect(s.filtering.dedup_drop_count).toBe(1);
   });
 
   it("tracks speaker turns for mechanics", () => {
@@ -169,7 +180,7 @@ describe("summarizeRun", () => {
     expect(s.source.log_path).toBe("test.ndjson");
     expect(s.source.run_id).toBeTruthy();
     expect(s.source.log_schema_version).toBe(1);
-    expect(s.schema_version).toBe(2);
+    expect(s.schema_version).toBe(3);
   });
 
   it("produces no warnings on clean run", () => {

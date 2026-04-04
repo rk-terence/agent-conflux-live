@@ -20,7 +20,7 @@ export const THRESHOLDS = {
 
 // ── Summary Schema Version ──────────────────────────────────────────────────
 
-export const SUMMARY_SCHEMA_VERSION = 2;
+export const SUMMARY_SCHEMA_VERSION = 3;
 
 // ── Output Types ────────────────────────────────────────────────────────────
 
@@ -142,6 +142,8 @@ export interface FilteringStats {
   truncated_by_max_length_count: number;
   silence_token_detected_count: number;
   cleaned_to_null_count: number;
+  pipeline_filter_count: number;
+  pipeline_cleaned_to_null_count: number;
 }
 
 export interface MechanicsStats {

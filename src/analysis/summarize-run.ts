@@ -160,6 +160,8 @@ export function summarizeRun(
       truncated_by_max_length_count: 0,
       silence_token_detected_count: 0,
       cleaned_to_null_count: 0,
+      pipeline_filter_count: 0,
+      pipeline_cleaned_to_null_count: 0,
     },
     mechanics: {
       speaker_turns: {},
@@ -470,9 +472,14 @@ export function summarizeRun(
         if (ev.silence_by_length) summary.filtering.silence_by_length_count++;
         if (ev.truncated_by_max_length) summary.filtering.truncated_by_max_length_count++;
         if (ev.silence_token_detected) summary.filtering.silence_token_detected_count++;
+        const isPipelineFilter = !ev.silence_token_detected && !ev.dedup_dropped;
+        if (isPipelineFilter) summary.filtering.pipeline_filter_count++;
         if (ev.cleaned_utterance === null) {
           summary.filtering.cleaned_to_null_count++;
           acc.cleanedToNullCount++;
+          if (isPipelineFilter) {
+            summary.filtering.pipeline_cleaned_to_null_count++;
+          }
         } else if (typeof ev.cleaned_utterance === "string") {
           pushSize(acc.cleanedUtteranceCharsAcc, ev.cleaned_utterance.length);
         }
