@@ -178,6 +178,12 @@ function turnComplete(
   offsetMs: number,
   type: "speech" | "silence",
   speaker?: string,
+  opts: {
+    utterance?: string;
+    insistence?: string;
+    collision?: unknown;
+    interruption?: unknown;
+  } = {},
 ): string {
   if (type === "speech") {
     return line("turn_complete", offsetMs, {
@@ -186,10 +192,10 @@ function turnComplete(
         turn,
         virtualTime: turn * 5,
         speaker: speaker ?? "Alice",
-        utterance: "test utterance",
-        insistence: "mid",
-        collision: null,
-        interruption: null,
+        utterance: opts.utterance ?? "test utterance",
+        insistence: opts.insistence ?? "mid",
+        collision: opts.collision ?? null,
+        interruption: opts.interruption ?? null,
       },
     });
   }
@@ -204,13 +210,22 @@ function turnComplete(
   });
 }
 
-function collisionResolved(tier: number, winner: string, offsetMs: number): string {
+function collisionResolved(
+  tier: number,
+  winner: string,
+  offsetMs: number,
+  opts: {
+    colliders?: Array<{ agent: string; utterance?: string; insistence?: string }>;
+    votes?: Array<{ voter: string; votedFor: string }>;
+    winnerInsistence?: string;
+  } = {},
+): string {
   return line("collision_resolved", offsetMs, {
     winner,
-    winnerInsistence: "high",
+    winnerInsistence: opts.winnerInsistence ?? "high",
     resolutionTier: tier,
-    colliders: [{ agent: winner, utterance: "a", insistence: "high" }],
-    votes: [],
+    colliders: opts.colliders ?? [{ agent: winner, utterance: "a", insistence: "high" }],
+    votes: opts.votes ?? [],
   });
 }
 
@@ -1058,6 +1073,148 @@ export function buildSizeVariedRun(): string[] {
   ms += 10;
   lines.push(turnComplete(3, ms, "speech", "Carol")); ms += 10;
   lines.push(thoughtUpdate("Carol", ms, "x".repeat(100))); ms += 10;
+
+  lines.push(sessionEnd(ms)); ms += 10;
+  lines.push(sessionFinalState(ms)); ms += 10;
+  lines.push(runFinished(ms));
+
+  return lines;
+}
+
+// ── L2-Eligible Run ────────────────────────────────────────────────────────
+
+export function buildL2EligibleRun(): string[] {
+  resetCallSeq();
+  let ms = 0;
+  const lines: string[] = [];
+
+  lines.push(runStarted(ms)); ms += 10;
+  lines.push(sessionConfig(ms)); ms += 10;
+
+  // Turn 1: Alice opens with a concrete image.
+  lines.push(turnStart(1, ms)); ms += 10;
+  const t1 = apiCallCycle({ turn: 1, agent: "Alice", mode: "reaction", offsetMs: ms });
+  lines.push(...t1.lines); ms += 1100;
+  lines.push(utteranceFilter({
+    callId: t1.callId,
+    turn: 1,
+    agent: "Alice",
+    offsetMs: ms,
+    cleanedUtterance: "I want the poem to feel like a train platform at 2 a.m., all fluorescent loneliness and bad coffee.",
+  }));
+  ms += 10;
+  lines.push(turnComplete(1, ms, "speech", "Alice", {
+    utterance: "I want the poem to feel like a train platform at 2 a.m., all fluorescent loneliness and bad coffee.",
+    insistence: "mid",
+  }));
+  ms += 10;
+  lines.push(thoughtUpdate("Alice", ms, "Bob is going to chase structure; I should stay sensory so the contrast is visible.")); ms += 10;
+  lines.push(thoughtUpdate("Bob", ms, "Alice is painting moods, but somebody needs an actual spine for the piece.")); ms += 10;
+  lines.push(thoughtUpdate("Carol", ms, "They are both being tasteful; I may need to break the rhythm on purpose.")); ms += 10;
+
+  // Turn 2: Bob and Carol collide, Bob wins in tier 2.
+  lines.push(turnStart(2, ms)); ms += 10;
+  const t2Bob = apiCallCycle({ turn: 2, agent: "Bob", mode: "reaction", offsetMs: ms });
+  lines.push(...t2Bob.lines); ms += 1100;
+  lines.push(utteranceFilter({
+    callId: t2Bob.callId,
+    turn: 2,
+    agent: "Bob",
+    offsetMs: ms,
+    cleanedUtterance: "No, give it a timetable and a missed connection; sadness lands harder when the logistics are painfully specific.",
+  }));
+  ms += 10;
+  const t2Carol = apiCallCycle({ turn: 2, agent: "Carol", mode: "reaction", offsetMs: ms });
+  lines.push(...t2Carol.lines); ms += 1100;
+  lines.push(utteranceFilter({
+    callId: t2Carol.callId,
+    turn: 2,
+    agent: "Carol",
+    offsetMs: ms,
+    cleanedUtterance: "Or wreck the poem with one absurd image, like a pigeon strutting through the heartbreak as if it owns the station.",
+  }));
+  ms += 10;
+  lines.push(line("collision_start", ms, { colliders: ["Bob", "Carol"] })); ms += 10;
+  lines.push(line("collision_round", ms, {
+    turn: 2,
+    tier: 2,
+    round: 1,
+    candidates: ["Bob", "Carol"],
+    insistences: [
+      { agent: "Bob", insistence: "high" },
+      { agent: "Carol", insistence: "mid" },
+    ],
+    eliminated: ["Carol"],
+    winner: "Bob",
+  })); ms += 10;
+  lines.push(collisionResolved(2, "Bob", ms, {
+    winnerInsistence: "high",
+    colliders: [
+      {
+        agent: "Bob",
+        utterance: "No, give it a timetable and a missed connection; sadness lands harder when the logistics are painfully specific.",
+        insistence: "high",
+      },
+      {
+        agent: "Carol",
+        utterance: "Or wreck the poem with one absurd image, like a pigeon strutting through the heartbreak as if it owns the station.",
+        insistence: "mid",
+      },
+    ],
+  })); ms += 10;
+  lines.push(turnComplete(2, ms, "speech", "Bob", {
+    utterance: "No, give it a timetable and a missed connection; sadness lands harder when the logistics are painfully specific.",
+    insistence: "high",
+  }));
+  ms += 10;
+  lines.push(thoughtUpdate("Bob", ms, "Carol keeps trying to detonate the tone, which is annoying and maybe exactly why she is useful.")); ms += 10;
+  lines.push(thoughtUpdate("Carol", ms, "Bob thinks structure is oxygen; I want to steal the room with one weird detail.")); ms += 10;
+
+  // Turn 3: Carol gets interrupted by Alice.
+  lines.push(turnStart(3, ms)); ms += 10;
+  const t3 = apiCallCycle({ turn: 3, agent: "Carol", mode: "reaction", offsetMs: ms });
+  lines.push(...t3.lines); ms += 1100;
+  lines.push(utteranceFilter({
+    callId: t3.callId,
+    turn: 3,
+    agent: "Carol",
+    offsetMs: ms,
+    cleanedUtterance: "Fine, keep the timetable, but let one line swagger: the pigeon should look like it paid rent and still hates everyone here.",
+  }));
+  ms += 10;
+  lines.push(interruptionEvaluation(3, ms, true)); ms += 10;
+  lines.push(interruptionAttempt(ms)); ms += 10;
+  lines.push(turnComplete(3, ms, "speech", "Carol", {
+    utterance: "Fine, keep the timetable, but let one line swagger: the pigeon should look like it paid rent and still hates everyone here.",
+    insistence: "mid",
+    interruption: {
+      interrupter: "Alice",
+      success: true,
+    },
+  }));
+  ms += 10;
+  lines.push(thoughtUpdate("Alice", ms, "Carol finally found a line worth stealing; I should grab that energy without inheriting the chaos.")); ms += 10;
+  lines.push(thoughtUpdate("Bob", ms, "Even interrupted, Carol produced the most quotable thing so far, which complicates my tidy plan.")); ms += 10;
+  lines.push(thoughtUpdate("Carol", ms, "If Alice steals the pigeon, I am going to make the next image even stranger.")); ms += 10;
+
+  // Turn 4: Alice closes the mini arc by synthesizing both threads.
+  lines.push(turnStart(4, ms)); ms += 10;
+  const t4 = apiCallCycle({ turn: 4, agent: "Alice", mode: "reaction", offsetMs: ms });
+  lines.push(...t4.lines); ms += 1100;
+  lines.push(utteranceFilter({
+    callId: t4.callId,
+    turn: 4,
+    agent: "Alice",
+    offsetMs: ms,
+    cleanedUtterance: "Keep Bob's missed connection, keep Carol's landlord pigeon, and suddenly the station feels heartbreakingly inhabited instead of generically sad.",
+  }));
+  ms += 10;
+  lines.push(turnComplete(4, ms, "speech", "Alice", {
+    utterance: "Keep Bob's missed connection, keep Carol's landlord pigeon, and suddenly the station feels heartbreakingly inhabited instead of generically sad.",
+    insistence: "mid",
+  }));
+  ms += 10;
+  lines.push(thoughtUpdate("Bob", ms, "That synthesis works, annoyingly; she made the structure feel emotional instead of managerial.")); ms += 10;
 
   lines.push(sessionEnd(ms)); ms += 10;
   lines.push(sessionFinalState(ms)); ms += 10;

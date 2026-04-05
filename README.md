@@ -73,15 +73,19 @@ node dist/cli.js runs/poetry-2min/config.json --log-dir ./output
 
 ### 离线日志分析
 
-运行结束后，可以对日志进行离线分析，生成结构化摘要和 L0/L1 分类：
+运行结束后，可以对日志进行离线分析，生成结构化摘要和 L0/L1/L2 分类：
 
 ```bash
 node dist/analysis/cli.js --input runs/poetry-2min/discussion-xxx.ndjson
+
+# 可选：启用 L2 内容评分
+node dist/analysis/cli.js --input runs/poetry-2min/discussion-xxx.ndjson --l2 --l2-model gpt-4.1-mini
 ```
 
 输出 `run-summary.json`，包含事件计数、API 统计、归一化/过滤/碰撞/打断聚合，以及：
 - **L0 基础设施**：运行是否完整（pass/fail）
 - **L1 机制健康**：圆桌行为是否正常（pass/fail）
+- **L2 内容评分**（可选）：对话的个性对比、张力、金句度等内容质量评估，辅助人工判断是否可发布
 
 详见 [运行摘要文档](./docs/RUN_SUMMARY.md)。
 
@@ -100,7 +104,7 @@ src/
   llm/                      LLMClient 接口、各 provider 适配器、重试
   normalize/                按模式分发的归一化（JSON 提取、发言清洗、各模式归一化）
   util/                     Token 计数、句子分割、名称列表格式化
-  analysis/                 离线日志分析：运行摘要生成、L0/L1 分类
+  analysis/                 离线日志分析：运行摘要生成、L0/L1 分类、可选 L2 内容评分
 examples/
   config.json               示例配置文件
 ```

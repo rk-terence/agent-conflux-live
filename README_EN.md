@@ -73,15 +73,19 @@ The terminal shows a human-readable live discussion feed. A comprehensive NDJSON
 
 ### Offline Log Analysis
 
-After a run, analyze the log offline to produce a structured summary with L0/L1 classification:
+After a run, analyze the log offline to produce a structured summary with L0/L1/L2 classification:
 
 ```bash
 node dist/analysis/cli.js --input runs/poetry-2min/discussion-xxx.ndjson
+
+# Optional: enable L2 content scoring
+node dist/analysis/cli.js --input runs/poetry-2min/discussion-xxx.ndjson --l2 --l2-model gpt-4.1-mini
 ```
 
 Outputs `run-summary.json` with event counts, API stats, normalization/filtering/collision/interruption aggregates, and:
 - **L0 Infra**: Did the run complete cleanly? (pass/fail)
 - **L1 Mechanics**: Were roundtable behaviors healthy? (pass/fail)
+- **L2 Content** (optional): Personality contrast, tension, quotability — evidence for human publishability judgment
 
 See [Run Summary docs](./docs/RUN_SUMMARY.md) for details.
 
@@ -100,7 +104,7 @@ src/
   llm/                      LLMClient interface, per-provider adapters, retry
   normalize/                Mode-based normalization (JSON extraction, utterance cleaning, per-mode normalizers)
   util/                     Token counting, sentence splitting, name list formatting
-  analysis/                 Offline log analysis: run summary generation, L0/L1 classification
+  analysis/                 Offline log analysis: run summary generation, L0/L1 classification, optional L2 content scoring
 examples/
   config.json               Example configuration file
 ```

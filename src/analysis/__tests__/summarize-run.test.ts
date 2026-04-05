@@ -180,7 +180,7 @@ describe("summarizeRun", () => {
     expect(s.source.log_path).toBe("test.ndjson");
     expect(s.source.run_id).toBeTruthy();
     expect(s.source.log_schema_version).toBe(1);
-    expect(s.schema_version).toBe(3);
+    expect(s.schema_version).toBe(4);
   });
 
   it("produces no warnings on clean run", () => {

@@ -20,9 +20,56 @@ export const THRESHOLDS = {
 
 // ── Summary Schema Version ──────────────────────────────────────────────────
 
-export const SUMMARY_SCHEMA_VERSION = 3;
+export const SUMMARY_SCHEMA_VERSION = 4;
 
 // ── Output Types ────────────────────────────────────────────────────────────
+
+export const L2_RUBRIC_WEIGHTS = {
+  personality_contrast: 30,
+  dramatic_tension: 25,
+  quotability: 20,
+  surprise: 15,
+  arc_completion: 10,
+} as const;
+
+export type L2RubricName = keyof typeof L2_RUBRIC_WEIGHTS;
+
+export interface L2EvidenceRef {
+  turn: number;
+  speaker: string;
+  text: string;
+}
+
+export interface L2CandidateQuote extends L2EvidenceRef {}
+
+export interface L2RubricScore {
+  rubric: L2RubricName;
+  score: number;
+  why: string;
+  evidence: L2EvidenceRef[];
+  failure_mode: string | null;
+}
+
+export interface L2ScoredResult {
+  status: "scored";
+  rubrics: L2RubricScore[];
+  weighted_total_100: number;
+  dominant_observation: string;
+  candidate_quotes: L2CandidateQuote[];
+  mechanics_contamination_note: string;
+  human_decision_required: true;
+  scorer_model: string;
+  scored_at: string;
+}
+
+export interface L2BlockedResult {
+  status: "blocked";
+  reasons: string[];
+  scorer_model: null;
+  scored_at: string;
+}
+
+export type L2Result = L2ScoredResult | L2BlockedResult;
 
 export interface SizeStats {
   min: number;
@@ -67,6 +114,7 @@ export interface RunSummary {
   sizes: SizesSection;
   classification: Classification;
   eligible_for_l2: boolean;
+  l2?: L2Result;
   warnings: string[];
 }
 

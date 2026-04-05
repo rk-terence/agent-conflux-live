@@ -1,20 +1,20 @@
 ---
 name: Run Summary
-description: Offline run summarizer — reads raw NDJSON logs, produces run-summary.json with deterministic L0/L1 classification.
+description: Offline run summarizer — reads raw NDJSON logs, produces run-summary.json with deterministic L0/L1 classification and optional L2 content scoring.
 references: [LOGGING.md]
 ---
 
 # Quick Start
 
 ```bash
-# Build first
-pnpm build
-
 # Summarize a log file
 node dist/analysis/cli.js --input runs/poetry-2min/discussion-xxx.ndjson
 
 # Specify output path
 node dist/analysis/cli.js --input runs/my-run/discussion.ndjson --output out/summary.json
+
+# Add optional L2 content scoring
+node dist/analysis/cli.js --input runs/my-run/discussion.ndjson --l2 --l2-model gpt-4.1-mini
 ```
 
 Default output: `<input-path>.summary.json` (replaces `.ndjson` extension).
@@ -23,7 +23,7 @@ Exit code: `0` if L0 passes, `1` if L0 fails.
 
 # Summary Output Schema
 
-`schema_version: 3`
+`schema_version: 4`
 
 ## source
 
@@ -144,7 +144,91 @@ Each field is `null` when no data points were collected.
 | Field | Type | Description |
 |-------|------|-------------|
 | eligible_for_l2 | boolean | True only when L0 pass AND L1 pass |
+| l2 | object? | Optional L2 content-scoring result. Omitted when `--l2` is not used or scorer setup/transport/parsing fails |
 | warnings | array | Non-fatal anomalies (see below) |
+
+## L2 Content Scoring
+
+L2 is an optional async step layered on top of the deterministic summary flow:
+
+- `summarizeRun()` remains synchronous and deterministic.
+- L2 only runs when the CLI is invoked with `--l2`.
+- L2 never changes the CLI exit code and never auto-publishes a run.
+- L2 is intended to produce evidence for human judgment about publishability.
+
+### CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| `--l2` | Enable L2 content scoring |
+| `--l2-model <model>` | Required when `--l2` is enabled |
+| `--l2-provider <provider>` | Registered scorer provider label. Default: `zenmux` |
+| `--l2-endpoint <url>` | OpenAI-compatible base URL for the scorer |
+| `--l2-api-key <key>` | Explicit scorer API key. Otherwise the CLI requires `${PROVIDER}_API_KEY` |
+
+If `--l2` is used on an ineligible run, the CLI records a blocked `summary.l2` result without requiring scorer credentials.
+
+If scorer provider validation, credential lookup, transport, parsing, or validation fails, the CLI prints a warning, leaves `summary.l2` undefined, and still exits based on L0 only.
+
+### L2 Result Schema
+
+Blocked result:
+
+```json
+{
+  "status": "blocked",
+  "reasons": ["blocked_by_l0"],
+  "scorer_model": null,
+  "scored_at": "2026-04-04T00:00:00.000Z"
+}
+```
+
+Scored result:
+
+```json
+{
+  "status": "scored",
+  "rubrics": [
+    {
+      "rubric": "personality_contrast",
+      "score": 4,
+      "why": "Distinct voices are clearly visible.",
+      "evidence": [{ "turn": 2, "speaker": "Alice", "text": "..." }],
+      "failure_mode": null
+    }
+  ],
+  "weighted_total_100": 72,
+  "dominant_observation": "Short summary of the content signal.",
+  "candidate_quotes": [{ "turn": 3, "speaker": "Bob", "text": "..." }],
+  "mechanics_contamination_note": "Notes about fallback/mechanics contamination.",
+  "human_decision_required": true,
+  "scorer_model": "gpt-4.1-mini",
+  "scored_at": "2026-04-04T00:00:00.000Z"
+}
+```
+
+### L2 Rubrics and Weights
+
+| Rubric | Weight |
+|--------|--------|
+| `personality_contrast` | 30 |
+| `dramatic_tension` | 25 |
+| `quotability` | 20 |
+| `surprise` | 15 |
+| `arc_completion` | 10 |
+
+`weighted_total_100` is computed deterministically in code as `Math.round(sum(score / 5 * weight))`.
+
+### L2 Score Scale
+
+| Score | Meaning |
+|-------|---------|
+| 0 | Absent |
+| 1 | Weak trace |
+| 2 | Present but thin |
+| 3 | Solid evidence |
+| 4 | Strong and repeatable |
+| 5 | Exceptional and unmistakable |
 
 ## Warnings
 
@@ -246,9 +330,15 @@ src/analysis/
   read-log.ts           NDJSON reader
   summarize-run.ts      Single-pass accumulator → RunSummary
   classify-run.ts       L0/L1 rule-based classification
+  l2-evidence.ts        Pure evidence extraction for L2 scoring
+  l2-prompt.ts          Pure L2 prompt construction
+  l2-score.ts           Async L2 scoring orchestration and validation
   cli.ts                CLI entrypoint
   __tests__/
     fixtures.ts         Programmatic test fixture builders
     summarize-run.test.ts
     classify-run.test.ts
+    l2-evidence.test.ts
+    l2-prompt.test.ts
+    l2-score.test.ts
 ```
